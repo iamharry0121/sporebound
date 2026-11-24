@@ -1,0 +1,7 @@
+# only code goes in here
+assets/
+media/
+# builds and test junk
+*.zip
+node_modules/
+.DS_Store
