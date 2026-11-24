@@ -1,4 +1,4 @@
-/* spore golf */
+/* sporebound */
 (function () {
 'use strict';
 const { VW, VH, TS, COLS, ROWS, PHYS, SPR, HOLES, makeWorld, makeBall, stepBall, updateSwings, growPad, surfaceY, tileAt } = window.SB;
@@ -221,6 +221,7 @@ const AU = {
     run.forEach((n, i) => this.pluck(mtof(n + 12), t + i * 0.08, 0.1, this.sfx));
     [62, 65, 69].forEach(n => this.tone(mtof(n), t, 2.2, { type: 'triangle', gain: 0.05, attack: 0.3 }));
   },
+  hop() { const t = this.now(); this.tone(380, t, 0.14, { gain: 0.09, glide: 900 }); this.noise(t, 0.12, { gain: 0.05, freq: 2400, type: 'bandpass', q: 2 }); },
   skip() { const t = this.now(); this.noise(t, 0.18, { gain: 0.1, freq: 1800, sweep: 600, type: 'bandpass', q: 1 }); this.tone(600, t, 0.1, { gain: 0.05, glide: 1200 }); },
   pop() { const t = this.now(); this.tone(500, t, 0.1, { gain: 0.05, glide: 900 }); },
   tick() { const t = this.now(); this.tone(1400, t, 0.02, { gain: 0.02, type: 'triangle' }); },
@@ -328,9 +329,9 @@ const G = {
   state: 'load', w: null, ball: null, phase: 'play', phaseT: 0, roomT: 0, particles: [], popups: [],
   aim: null, kbAim: { a: 40, p: 0.6, on: false }, level: 0, run: null, lastSafe: null, safeT: 0,
   time: 0, flies: 0, fade: 1, endT: 0, sinkX: 0, sinkY: 0, padGrown: false, roomSpores: 0,
-  touch: false, trail: [], strokes: 0, card: [], menu: 0, cam: { x: 0, y: 0 },
+  touch: false, hopQueued: false, trail: [], facing: 1, strokes: 0, card: [], menu: 0, cam: { x: 0, y: 0 },
 };
-function newRun() { return { mods: Object.assign({}, window.SB.DEFAULT_MODS), preview: 1, spores: 0 }; }
+function newRun() { return { mods: Object.assign({}, window.SB.DEFAULT_MODS), preview: 1, airJumps: 0, spores: 0 }; }
 function vmax() { return PHYS.VMAX * (G.run ? G.run.mods.power : 1); }
 function startLevel(n) {
   G.level = n;
@@ -340,8 +341,11 @@ function startLevel(n) {
   G.lastSafe = { x: G.w.start.x, y: G.w.start.y }; G.safeT = 0;
   G.phase = 'play'; G.phaseT = 0; G.roomT = 0; G.particles = []; G.popups = []; G.trail = [];
   G.aim = null; G.kbAim.on = false; G.state = 'play'; G.fade = 1; G.strokes = 0; G.roomSpores = 0;
+  G.facing = Math.sign(G.w.goal.x - G.w.start.x) || 1;
+  resetAirCharges();
 }
 function newGame() { G.run = newRun(); G.time = 0; G.flies = 0; G.card = []; startLevel(0); }
+function resetAirCharges() { if (G.ball && G.run) { G.ball.jumps = G.run.airJumps; G.ball.skips = G.run.mods.skips; G.ball.coyote = Math.max(G.ball.coyote, G.ball.grounded || G.ball.vy === 0 ? PHYS.COYOTE : 0); } }
 const MENU = () => [{ id: 'play', label: 'Play  -  9 holes' }, { id: 'practice', label: 'Practice  -  coming soon', disabled: true }];
 function menuSelect(i) {
   const it = MENU()[i]; if (!it || it.disabled) { AU.tick(); return; }
@@ -349,10 +353,12 @@ function menuSelect(i) {
   newGame();
 }
 
-/* input. when the spore stops, drag back from it and let go to fling */
+/* input. A/D to roll, space to hop, drag back (from the ground) to fling */
 function toGame(e) { const r = screen.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * VW, y: (e.clientY - r.top) / r.height * VH }; }
+const TBTN = { left: [36, 362, 22], right: [92, 362, 22], hop: [VW - 40, 362, 26] };
+const touchHeld = { left: null, right: null, hop: null };
 let aimPointer = null;
-function grounded() { return G.ball && !G.ball.moving; }   // u can only shoot when its stopped
+function grounded() { return G.ball && G.ball.coyote > 0; }
 screen.addEventListener('pointerdown', e => {
   e.preventDefault(); screen.focus(); AU.init();
   if (e.pointerType === 'touch') G.touch = true;
@@ -363,6 +369,10 @@ screen.addEventListener('pointerdown', e => {
   if (G.state !== 'play') return;
   if (G.phase === 'cleared') { if (G.phaseT > 1.2) nextLevel(); return; }
   if (p.x > VW - 40 && p.y < 22) { AU.setMute(!AU.muted); return; }
+  if (G.touch) for (const k in TBTN) {
+    const [bx, by, br] = TBTN[k];
+    if ((p.x - bx) ** 2 + (p.y - by) ** 2 < (br + 6) ** 2) { touchHeld[k] = e.pointerId; if (k === 'hop') G.hopQueued = true; return; }
+  }
   if (G.phase === 'play' && grounded()) { aimPointer = e.pointerId; G.aim = { sx: p.x, sy: p.y, x: p.x, y: p.y, lastBucket: -1 }; G.kbAim.on = false; }
 });
 screen.addEventListener('pointermove', e => {
@@ -371,6 +381,7 @@ screen.addEventListener('pointermove', e => {
   if (G.aim && e.pointerId === aimPointer) { G.aim.x = p.x; G.aim.y = p.y; }
 });
 const release = e => {
+  for (const k in touchHeld) if (touchHeld[k] === e.pointerId) touchHeld[k] = null;
   if (e.pointerId !== aimPointer) return;
   aimPointer = null;
   if (G.aim && G.phase === 'play' && grounded()) { const v = aimVector(); if (v.p > 0.06) fling(v.vx, v.vy, v.p); }
@@ -380,6 +391,7 @@ screen.addEventListener('pointerup', release);
 screen.addEventListener('pointercancel', release);
 
 const keys = {};
+const HOP_KEYS = ['Space', 'KeyW', 'ArrowUp', 'KeyK'];
 window.addEventListener('keydown', e => {
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
   keys[e.code] = true; AU.init();
@@ -403,7 +415,8 @@ window.addEventListener('keydown', e => {
     if (e.code === 'KeyF' || e.code === 'Escape' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') G.kbAim.on = false;
     return;
   }
-  if ((e.code === 'KeyF' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && grounded()) { G.kbAim.on = true; G.kbAim.a = G.w.goal.x < G.ball.x ? 135 : 45; AU.tick(); return; }
+  if ((e.code === 'KeyF' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && grounded()) { G.kbAim.on = true; G.kbAim.a = G.ball.vx < -5 || (G.w.mirror && G.ball.vx <= 5) ? 135 : 45; AU.tick(); return; }
+  if (HOP_KEYS.includes(e.code)) G.hopQueued = true;
   if (e.code === 'KeyR') { G.ball.vx = G.ball.vy = 0; die(true); }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -422,10 +435,21 @@ function currentAim() {
 }
 function fling(vx, vy, p) {
   const b = G.ball;
-  b.vx = vx; b.vy = vy; b.t = 0; b.restT = 0; b.padCombo = 0; b.moving = true;
+  b.vx = vx; b.vy = vy; b.t = 0; b.restT = 0; b.padCombo = 0; b.coyote = 0;
   G.strokes++;
+  resetAirCharges();
   AU.shoot(p);
 }
+function hop() {
+  const b = G.ball;
+  if (b.coyote > 0) {
+    b.vy = Math.min(b.vy, -PHYS.HOP); b.coyote = 0; AU.hop();
+    burst(b.x, b.y + 4, 5, { color: ['#c8b89a', '#8a7a62'], speed: 40, life: 0.35, g: 150 });
+  } else if (b.jumps > 0) {
+    b.jumps--; b.vy = Math.min(b.vy, -PHYS.HOP * 1.15); AU.hop();
+  }
+}
+
 /* particles + the little popup text */
 function burst(x, y, n, o = {}) {
   for (let i = 0; i < n; i++) {
@@ -453,9 +477,16 @@ function fixedUpdate(dt) {
     if (k.ArrowDown || k.KeyS) G.kbAim.p = Math.max(0.08, G.kbAim.p - 0.6 * dt);
   }
   if (G.phase === 'play') {
-    if (!b.moving) return;
+    const aiming = G.aim || G.kbAim.on;
+    b.move = aiming ? 0 : ((keys.ArrowRight || keys.KeyD || touchHeld.right != null) ? 1 : 0) - ((keys.ArrowLeft || keys.KeyA || touchHeld.left != null) ? 1 : 0);
+    if (G.hopQueued) { G.hopQueued = false; if (!aiming) hop(); }
+    if (b.move) G.facing = b.move; else if (Math.abs(b.vx) > 40) G.facing = Math.sign(b.vx);
+    const wasGround = b.grounded, preVy = b.vy;
     const ev = [];
+    b.t = 0; b.ctl = true;
     const r = stepBall(w, b, dt, ev);
+    if (!grounded()) { G.kbAim.on = false; if (G.aim) G.aim = null; }
+    if (b.grounded) resetAirCharges();
     for (const e of ev) {
       if (e.t === 'hit') {
         if (e.kind === 'cap') { AU.cap(); e.ref.squish = 1; }
@@ -472,9 +503,11 @@ function fixedUpdate(dt) {
     }
     if (G.phaseT % 0.05 < dt && !b.grounded) { G.trail.push({ x: b.x, y: b.y }); if (G.trail.length > 14) G.trail.shift(); }
     if (b.grounded) G.trail.length = Math.max(0, G.trail.length - 1);
-    if (r === 'rest') { b.moving = false; G.lastSafe = { x: b.x, y: b.y }; G.trail = []; }   // wherever it stops is where u play from next
-    else if (r === 'lost') { b.moving = false; b.x = G.lastSafe.x; b.y = G.lastSafe.y; b.vx = b.vy = 0; popup('Lost it!', b.x, b.y - 16); }
-    else if (r === 'goal') holed();
+    // remember the last safe spot so we can respawn there
+    const tx0 = Math.floor((b.x - 9) / TS), tx1 = Math.floor((b.x + 9) / TS), ty = Math.floor((b.y + PHYS.R + 2) / TS);
+    const footing = ['#', '-'].includes(tileAt(w, tx0, ty)) && ['#', '-'].includes(tileAt(w, tx1, ty));
+    if (b.grounded && !b.groundMoving && footing && Math.abs(b.vx) < 160) { G.safeT += dt; if (G.safeT > 0.15) G.lastSafe = { x: b.x, y: b.y }; } else G.safeT = 0;
+    if (r === 'goal') holed();
     else if (r === 'sink') sink();
   } else if (G.phase === 'dead') {
     if (!G.padGrown && G.phaseT > 0.45) {
@@ -498,7 +531,7 @@ function sink() {
 }
 function die(manual) { if (manual) { G.phase = 'dead'; G.phaseT = 0.45; G.padGrown = true; AU.pop(); } }
 function respawn() {
-  G.ball = makeBall(G.lastSafe.x, G.lastSafe.y);
+  G.ball = makeBall(G.lastSafe.x, G.lastSafe.y); resetAirCharges();
   G.phase = 'play'; G.trail = [];
   AU.pop();
 }
@@ -651,6 +684,20 @@ function drawParticles(dt) {
   }
 }
 
+function drawTouchButtons() {
+  if (!G.touch) return;
+  for (const k in TBTN) {
+    const [bx, by, br] = TBTN[k], held = touchHeld[k] != null;
+    ctx.globalAlpha = held ? 0.85 : 0.5;
+    pxCircle(ctx, bx, by, br + 1, MEM.dark); pxCircle(ctx, bx, by, br, MEM.edge); pxCircle(ctx, bx, by, br - 2, held ? '#1f5048' : '#10282a');
+    ctx.fillStyle = MEM.hi;
+    if (k === 'left') for (let i = 0; i < 9; i++) ctx.fillRect(bx - 5 + i, by - i / 1.5, 1, Math.round(i * 1.33) + 1);
+    else if (k === 'right') for (let i = 0; i < 9; i++) ctx.fillRect(bx + 5 - i, by - i / 1.5, 1, Math.round(i * 1.33) + 1);
+    else text('hop', bx, by - 3, 1, MEM.hi, 'center', null);
+    ctx.globalAlpha = 1;
+  }
+}
+
 /* drawing. one screen per hole */
 function drawSigns(w) {
   spr(ctx, 'start', w.start.x - 22, w.start.y + PHYS.R - SPR.start[3] + 3);
@@ -686,6 +733,7 @@ function renderPlay(t, dt) {
   text(`Par ${H.par}`, VW - sw + 4, 7, 1, '#ffe9a8');
   text(`Strokes ${G.strokes}`, VW - sw + 46, 7, 1, G.strokes > H.par ? '#ffb0b0' : MEM.text);
   text(AU.muted ? 'M:off' : 'M:on', VW - 12, 7, 1, MEM.dim, 'right');
+  drawTouchButtons();
   if (G.roomT < 7 && G.phase === 'play' && H.hint) {
     ctx.globalAlpha = Math.min(1, (7 - G.roomT) / 1.5);
     const hw = textWidth(H.hint) + 16; pill(VW / 2 - hw / 2, 24, hw); text(H.hint, VW / 2, 27, 1, MEM.text, 'center'); ctx.globalAlpha = 1;
@@ -721,11 +769,11 @@ function renderTitle(t) {
   const sq = ph < 0.1 ? 1 - ph / 0.1 : ph > 0.9 ? (ph - 0.9) / 0.1 : 0;
   for (const [x, s] of [[left, goingRight ? sq * (ph < 0.5 ? 1 : 0) : sq * (ph > 0.5 ? 1 : 0)], [right, goingRight ? sq * (ph > 0.5 ? 1 : 0) : sq * (ph < 0.5 ? 1 : 0)]]) drawPad({ cx: x, sy: wy, x, grow: 1, squish: s * 0.8 });
   drawBall({ x: bx, y: by, vx: goingRight ? 120 : -120, vy: Math.cos(ph * Math.PI) * -200 }, t);
-  const word = 'Spore Golf', sc = 5, tw = [...word].reduce((a, ch) => a + textWidth(ch, sc) + (fontFor(sc) ? sc : 0), 0);
+  const word = 'Sporebound', sc = 5, tw = [...word].reduce((a, ch) => a + textWidth(ch, sc) + (fontFor(sc) ? sc : 0), 0);
   let x = VW / 2 - tw / 2;
   for (let i = 0; i < word.length; i++) {
     const b = Math.abs(Math.sin(t * 2.4 + i * 0.45)) * 8;
-    text(word[i], x, 60 - b, sc, i > 5 ? '#9ff4dc' : '#f2fff8', 'left', '#0b1a1c');
+    text(word[i], x, 60 - b, sc, i === 5 ? '#9ff4dc' : '#f2fff8', 'left', '#0b1a1c');
     x += textWidth(word[i], sc) + (fontFor(sc) ? sc : 0);
   }
   text('every miss grows something', VW / 2, 114, 2, '#c8ffb0', 'center');
@@ -737,7 +785,7 @@ function renderTitle(t) {
     membrane(VW / 2 - wdt / 2, y, wdt, 20, 10, { edge: it.disabled ? '#5f7f78' : sel ? '#9ff4dc' : MEM.edgeD, glow: sel && !it.disabled ? 0.2 : 0 });
     text(it.label, VW / 2, y + 5, 1, it.disabled ? '#5f7f78' : sel ? '#f2fff8' : MEM.dim, 'center');
   });
-  text('Up/Down + Space, or click  -  drag back to fling  -  F aim with keys  -  R retry  -  M mute', VW / 2, 372, 1, MEM.text, 'center');
+  text('Up/Down + Space, or click  -  A/D roll  -  Space hop  -  drag to fling  -  R retry  -  M mute', VW / 2, 372, 1, MEM.text, 'center');
   text(CREDIT_LINE, VW / 2, 386, 1, MEM.dim, 'center');
 }
 function menuHit(p) { const n = MENU().length; for (let i = 0; i < n; i++) { const y = 148 + i * 26; if (p.x > VW / 2 - 130 && p.x < VW / 2 + 130 && p.y > y && p.y < y + 20) return i; } return -1; }
@@ -788,7 +836,7 @@ function frame(now) {
   sctx.drawImage(lo, 0, 0, screen.width, screen.height);
   requestAnimationFrame(frame);
 }
-window.SPOREBOUND = { G, startLevel, newGame, AU, fling };
+window.SPOREBOUND = { G, startLevel, newGame, AU, fling, hop };
 screen.focus();
 requestAnimationFrame(frame);
 })();

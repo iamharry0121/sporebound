@@ -1,4 +1,4 @@
-/* spore golf: the physics + level data */
+/* sporebound: the physics + level data */
 (function (root) {
 'use strict';
 const VW = 640, VH = 400, TS = 16, COLS = 40, ROWS = 25;
@@ -7,6 +7,8 @@ const PHYS = {
   G: 600, VMAX: 520, R: 5, DT: 1 / 120,
   E_GROUND: 0.42, E_POST: 0.5, E_CAP: 0.9, E_LOG: 0.45,
   PAD_MIN: 380, CAP_MIN: 240, ROLL: 170, REST_SPEED: 9, REST_TIME: 0.3, SHOT_MAX: 12,
+  /* platformer controls */
+  MOVE_MAX: 115, MOVE_ACC: 520, AIR_ACC: 240, HOP: 250, COYOTE: 0.1,
 };
 
 /* where each sprite is in Terrain_and_Props.png (sx, sy, w, h) */
@@ -35,7 +37,7 @@ function build(fn) {
 
 const HOLES = [
   { name: 'First Fling', par: 2, set: 'orange', bg: 0,
-    hint: 'Drag back from the spore and let go to fling it.',
+    hint: 'Roll with A/D, hop with Space, drag back to fling.',
     map: build(({ island, water, p }) => {
       island(0, 9, 15); island(24, 39, 15); water(19);
       p(4, 14, 'S'); p(31, 14, 'G'); p(16, 7, '*');
@@ -185,7 +187,7 @@ function growPad(w, x, y) {
 }
 
 /* ball physics */
-function makeBall(x, y) { return { x, y, vx: 0, vy: 0, grounded: false, restT: 0, t: 0, padCombo: 0, skips: 0 }; }
+function makeBall(x, y) { return { x, y, vx: 0, vy: 0, grounded: false, restT: 0, t: 0, padCombo: 0, skips: 0, jumps: 0, coyote: 0, move: 0 }; }
 
 function resolve(b, nx, ny, pen, e, svx, svy, minOut, ev, kind, ref) {
   b.x += nx * pen; b.y += ny * pen;
@@ -277,10 +279,19 @@ function stepBall(w, b, dt, ev) {
   }
   if (!w.infinite && b.x < R) { b.x = R; b.vx = Math.abs(b.vx) * 0.5; if (ev) ev.push({ t: 'hit', kind: 'wall', v: 100, x: 0, y: b.y }); }
   if (!w.infinite && b.x > VW - R) { b.x = VW - R; b.vx = -Math.abs(b.vx) * 0.5; if (ev) ev.push({ t: 'hit', kind: 'wall', v: 100, x: VW, y: b.y }); }
+  const mv = b.move || 0;
   if (b.grounded) {
-    const rel = b.vx - b.groundVx, roll = P.ROLL * m.grip * dt;
-    b.vx = rel > 0 ? Math.max(b.groundVx, b.vx - roll) : Math.min(b.groundVx, b.vx + roll);
-    b.padCombo = 0;
+    const rel = b.vx - b.groundVx;
+    if (mv && rel * mv < P.MOVE_MAX) b.vx += mv * Math.min(P.MOVE_ACC * m.grip ** 0.3 * dt, P.MOVE_MAX - rel * mv);
+    else if (!mv || rel * mv > P.MOVE_MAX) {
+      /* slow rolls stop right away, fling speed rolls keep going */
+      const roll = (Math.abs(rel) <= P.MOVE_MAX + 5 && b.move !== undefined && b.ctl ? 650 : P.ROLL) * m.grip * dt;
+      b.vx = b.vx > b.groundVx ? Math.max(b.groundVx, b.vx - roll) : Math.min(b.groundVx, b.vx + roll);
+    }
+    b.padCombo = 0; b.coyote = P.COYOTE;
+  } else {
+    b.coyote = Math.max(0, b.coyote - dt);
+    if (mv && b.vx * mv < P.MOVE_MAX) b.vx += mv * Math.min(P.AIR_ACC * dt, P.MOVE_MAX - b.vx * mv);
   }
   // water
   const cTile = tileAt(w, Math.floor(b.x / TS), Math.floor(b.y / TS));
@@ -301,7 +312,7 @@ function stepBall(w, b, dt, ev) {
   }
   // resting
   const sp = Math.hypot(b.vx - (b.grounded ? b.groundVx : 0), b.vy);
-  if (b.grounded && !b.groundMoving && sp < P.REST_SPEED) { b.restT += dt; if (b.restT > P.REST_TIME) { b.vx = b.vy = 0; return 'rest'; } }
+  if (b.grounded && !b.groundMoving && sp < P.REST_SPEED && !mv) { b.restT += dt; if (b.restT > P.REST_TIME) { b.vx = b.vy = 0; return 'rest'; } }
   else b.restT = 0;
   if (b.t > P.SHOT_MAX) return b.grounded && !b.groundMoving ? 'rest' : 'lost';
   return null;
