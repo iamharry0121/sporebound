@@ -3,7 +3,18 @@
 'use strict';
 const { VW, VH, TS, COLS, ROWS, PHYS, SPR, HOLES, makeWorld, makeBall, stepBall, updateSwings, growPad, surfaceY, tileAt } = window.SB;
 
-const ready = () => true;
+/* loading the images */
+const IMG = {};
+const FILES = { tp: 'Terrain_and_Props.png', bg1: 'BG_1.png', bg2: 'BG_2.png', bg3: 'BG_3.png', bg3alt: 'BG_3_alt.png' };
+let loaded = 0, loadError = null;
+for (const k in FILES) {
+  const im = new Image();
+  im.onload = () => { loaded++; };
+  im.onerror = () => { loadError = FILES[k]; };
+  im.src = 'assets/' + FILES[k];
+  IMG[k] = im;
+}
+const ready = () => loaded === Object.keys(FILES).length;
 
 /* canvas stuff. game draws at 640x400 then scales up so the pixels stay crisp */
 const screen = document.getElementById('game');
@@ -40,8 +51,54 @@ const GLYPHS = {
   '>': '01000001000001000001000100010001000', '*': '00000101010111011111011101010100000', '=': '00000000001111100000111110000000000',
   '#': '01010010101111101010111110101001010', '&': '01100100101010001000101011001001101', '^': '00100010101000100000000000000000000',
 };
-function textWidth(s, sc = 1) { let w = 0; for (const ch of String(s).toUpperCase()) w += (ch === ' ' ? 4 : 6) * sc; return w - sc; }
-function text(s, x, y, sc = 1, color = '#fff6e0', align = 'left', shadow = '#1a1424') { pixelText(String(s), x, y, sc, color, align, shadow); }
+/* two pixel fonts, both are meant for 11px */
+const FONT_PX = 11, FONT_PAD = 4;
+const FONTS = { body: { family: 'PixelSans', file: 'PixelSans.ttf', ready: false, dy: 4 }, head: { family: 'ScrollPixel', file: 'ScrollPixel.ttf', ready: false, dy: 4 } };
+const textCache = new Map();
+const mctx = document.createElement('canvas').getContext('2d');
+if (window.FontFace) for (const k in FONTS) {
+  const F = FONTS[k];
+  new FontFace(F.family, `url(assets/fonts/${F.file})`).load().then(f => { document.fonts.add(f); F.ready = true; textCache.clear(); }).catch(() => { });
+}
+const fontFor = sc => { const F = sc >= 2 ? FONTS.head : FONTS.body; return F.ready ? F : (FONTS.body.ready ? FONTS.body : null); };
+const prep = (s, F) => F.family === 'PixelSans' ? s.replace(/·/g, '-') : s;
+const CREDIT_LINE = 'made by harry';
+function runCanvas(s, color, F) {
+  const key = F.family + '|' + s + '|' + color;
+  let c = textCache.get(key);
+  if (c) return c;
+  mctx.font = `${FONT_PX}px ${F.family}`;
+  const w = Math.ceil(mctx.measureText(s).width) + 2;
+  c = document.createElement('canvas'); c.width = Math.max(1, w); c.height = FONT_PX + FONT_PAD + 6;
+  const x = c.getContext('2d');
+  x.font = `${FONT_PX}px ${F.family}`; x.textBaseline = 'alphabetic'; x.fillStyle = color;
+  x.fillText(s, 1, FONT_PX + 1);
+  const im = x.getImageData(0, 0, c.width, c.height), d = im.data;
+  for (let i = 3; i < d.length; i += 4) d[i] = d[i] > 110 ? 255 : 0;
+  x.putImageData(im, 0, 0);
+  if (textCache.size > 500) textCache.clear();
+  textCache.set(key, c);
+  return c;
+}
+function textWidth(s, sc = 1) {
+  s = String(s);
+  const F = fontFor(sc);
+  if (!F) { let w = 0; for (const ch of s.toUpperCase()) w += (ch === ' ' ? 4 : 6) * sc; return w - sc; }
+  mctx.font = `${FONT_PX}px ${F.family}`;
+  return Math.ceil(mctx.measureText(prep(s, F)).width) * sc;
+}
+function text(s, x, y, sc = 1, color = '#fff6e0', align = 'left', shadow = '#1a1424') {
+  s = String(s);
+  const F = fontFor(sc);
+  if (!F) return pixelText(s, x, y, sc, color, align, shadow);
+  s = prep(s, F);
+  const w = textWidth(s, sc);
+  const cx = Math.round(align === 'center' ? x - w / 2 : align === 'right' ? x - w : x);
+  const cy = Math.round(y) - F.dy * sc;
+  if (shadow) { const sh = runCanvas(s, shadow, F); ctx.drawImage(sh, cx, cy + sc, sh.width * sc, sh.height * sc); }
+  const c = runCanvas(s, color, F);
+  ctx.drawImage(c, cx - sc, cy, c.width * sc, c.height * sc);
+}
 function pixelText(s, x, y, sc, color, align, shadow) {
   s = s.toUpperCase();
   const w = textWidth(s, sc);
@@ -60,7 +117,7 @@ function pixelText(s, x, y, sc, color, align, shadow) {
   }
 }
 
-/* audio. every sound is made with web audio, no sound files */
+/* audio. every sound effect is made with web audio, plus the background track */
 const mtof = n => 440 * Math.pow(2, (n - 69) / 12);
 const AU = {
   ctx: null, muted: false,
@@ -77,8 +134,10 @@ const AU = {
     const send = ctx.createGain(); send.gain.value = 0.4; this.sfx.connect(send); send.connect(this.verb);
     const len = ctx.sampleRate; this.noiseBuf = ctx.createBuffer(1, len, len);
     const d = this.noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    this.startMusic();
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) ctx.suspend(); else ctx.resume();
+      if (document.hidden) { ctx.suspend(); if (this.track) this.track.pause(); }
+      else { ctx.resume(); if (this.track && !this.muted) this.track.play().catch(() => { }); }
     });
   },
   impulse(sec, decay) {
@@ -89,7 +148,29 @@ const AU = {
   setMute(m) {
     this.muted = m;
     if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.85, this.ctx.currentTime, 0.05);
+    if (this.track) { this.track.muted = m; if (!m) this.track.play().catch(() => { }); }
   },
+  /* background track. ogg opus if the browser can play it, mp3 if not (old safari) */
+  MUSIC_VOL: 0.55,
+  startMusic() {
+    const a = this.track = new Audio();
+    const ogg = a.canPlayType('audio/ogg; codecs="opus"');
+    a.src = 'assets/music/a-moment-of-solace.' + (ogg ? 'ogg' : 'mp3');
+    a.loop = true; a.preload = 'auto'; a.volume = 0; a.muted = this.muted;
+    a.play().catch(() => { });
+    this.fadeTo(this.MUSIC_VOL, 2.5);
+  },
+  fadeTo(v, sec) {
+    const a = this.track; if (!a) return;
+    clearInterval(this.fadeTimer);
+    const from = a.volume, t0 = performance.now();
+    this.fadeTimer = setInterval(() => {
+      const k = Math.min(1, (performance.now() - t0) / (sec * 1000));
+      a.volume = Math.max(0, Math.min(1, from + (v - from) * k));
+      if (k >= 1) clearInterval(this.fadeTimer);
+    }, 30);
+  },
+  duck(sec) { this.fadeTo(this.MUSIC_VOL * 0.35, 0.15); clearTimeout(this.duckT); this.duckT = setTimeout(() => this.fadeTo(this.MUSIC_VOL, 1.2), sec * 1000); },
   tone(f, t, dur, o = {}) {
     const c = this.ctx; if (!c) return;
     const osc = c.createOscillator(), g = c.createGain();
@@ -134,6 +215,7 @@ const AU = {
   grow() { const t = this.now(); [62, 65, 69, 74, 77].forEach((n, i) => this.pluck(mtof(n + 12), t + i * 0.06, 0.08, this.sfx)); },
   fly() { const t = this.now(); this.pluck(mtof(93), t, 0.08, this.sfx); this.pluck(mtof(98), t + 0.07, 0.06, this.sfx); },
   holed(good) {
+    this.duck(2.2);
     const t = this.now();
     const run = good ? [62, 65, 69, 74, 77, 81, 86] : [62, 65, 69, 74];
     run.forEach((n, i) => this.pluck(mtof(n + 12), t + i * 0.08, 0.1, this.sfx));
@@ -145,29 +227,62 @@ const AU = {
   ui() { const t = this.now(); this.pluck(mtof(81), t, 0.07, this.sfx); },
 };
 
-/* tiles. just flat colours for now */
+/* tiles. autotiles using the terrain block in the tileset */
+const TSET = {
+  tl: [4, 2], tr: [10, 2], t: [[6, 1], [7, 1], [8, 1]], l: [[4, 3], [4, 4], [4, 5]], r: [[10, 3], [10, 4], [10, 5]],
+  bl: [4, 6], br: [10, 6], b: [[5, 6], [6, 6], [7, 6], [8, 6], [9, 6]], under: [[6, 2], [7, 2], [8, 2]],
+  fill: [[5, 4], [5, 5], [9, 4], [9, 5], [9, 3]], tuft: [[6, 0], [7, 0], [8, 0]], drip: { 6: [6, 7], 9: [9, 7] },
+};
+const OFF = { orange: 0, green: 8 };
 const hash = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const pick = (arr, i) => arr[Math.floor(hash(i) * arr.length) % arr.length];
+function tile(c, [sx, sy], dx, dy, off = 0) { c.drawImage(IMG.tp, (sx + off) * TS, sy * TS, TS, TS, dx, dy, TS, TS); }
+function spr(c, name, dx, dy, w, h) { const s = SPR[name]; c.drawImage(IMG.tp, s[0], s[1], s[2], s[3], Math.round(dx), Math.round(dy), w || s[2], h || s[3]); }
+
 let terrainCache = null, waterCache = null;
 function buildCaches(w) {
+  const H = HOLES[w.hi], off = OFF[H.set];
   terrainCache = document.createElement('canvas'); terrainCache.width = VW; terrainCache.height = VH;
-  waterCache = document.createElement('canvas'); waterCache.width = VW; waterCache.height = VH;
-  const c = terrainCache.getContext('2d'), wc = waterCache.getContext('2d');
+  const c = terrainCache.getContext('2d'); c.imageSmoothingEnabled = false;
+  const S = (x, y) => tileAt(w, x, y) === '#' && !(y < 0);
+  for (const [name, tx, ty] of H.deco || []) { const s = SPR[name]; spr(c, name, w.mirror ? VW - tx * TS - s[2] : tx * TS, ty * TS - s[3] + 2); }
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    const ch = w.tiles[y][x], dx = x * TS, dy = y * TS;
+    const ch = w.tiles[y][x], dx = x * TS, dy = y * TS, i = x * 31 + y * 17;
     if (ch === '#') {
-      c.fillStyle = (x + y) % 2 ? '#3f2c22' : '#45302a'; c.fillRect(dx, dy, TS, TS);
-      if (y === 0 || w.tiles[y - 1][x] !== '#') { c.fillStyle = '#5f9a48'; c.fillRect(dx, dy, TS, 4); c.fillStyle = '#7fc35e'; c.fillRect(dx, dy, TS, 1); }
+      const up = y === 0 ? true : S(x, y - 1), dn = y === ROWS - 1 ? true : S(x, y + 1);
+      const lf = x === 0 ? true : S(x - 1, y), rt = x === COLS - 1 ? true : S(x + 1, y);
+      let t;
+      if (!up && !lf) t = TSET.tl; else if (!up && !rt) t = TSET.tr; else if (!up) t = pick(TSET.t, i);
+      else if (!dn && !lf) t = TSET.bl; else if (!dn && !rt) t = TSET.br; else if (!dn) t = pick(TSET.b, i);
+      else if (!lf) t = pick(TSET.l, i); else if (!rt) t = pick(TSET.r, i);
+      else if (y > 0 && !S(x, y - 2) && y >= 2) t = pick(TSET.under, i); else t = pick(TSET.fill, i);
+      tile(c, t, dx, dy, off);
+      if (!up && lf && rt && hash(i + 5) > 0.35) tile(c, pick(TSET.tuft, i + 2), dx, dy - TS, off);
+      if (!dn && TSET.drip[t[0]] && y + 1 < ROWS && w.tiles[y + 1][x] !== '~') tile(c, TSET.drip[t[0]], dx, dy + TS, off);
     } else if (ch === '-') {
-      c.fillStyle = '#7a5032'; c.fillRect(dx, dy, TS, 4); c.fillStyle = '#9a6a44'; c.fillRect(dx, dy, TS, 1);
-    } else if (ch === '~') {
+      const l = w.tiles[y][x - 1] === '-', r = w.tiles[y][x + 1] === '-';
+      tile(c, [!l ? 12 : !r ? 14 : 13, 10], dx, dy - 2);
+      if (hash(i) > 0.4) tile(c, [12 + (i % 2), 9], dx, dy - TS - 2);
+    }
+  }
+  waterCache = document.createElement('canvas'); waterCache.width = VW; waterCache.height = VH;
+  const wc = waterCache.getContext('2d'); wc.imageSmoothingEnabled = false;
+  for (let x = 0; x < COLS; x++) {
+    let top = null;
+    for (let y = 0; y < ROWS; y++) {
+      if (w.tiles[y][x] !== '~') continue;
       const surf = y === 0 || w.tiles[y - 1][x] !== '~';
-      wc.fillStyle = 'rgba(70,130,190,0.6)'; wc.fillRect(dx, dy, TS, TS);
-      if (surf) { wc.fillStyle = '#bfe6ff'; wc.fillRect(dx, dy, TS, 1); }
+      if (surf) top = y * TS;
+      tile(wc, surf ? [4, 8] : [5, 8], x * TS, y * TS);
+    }
+    if (top != null) {
+      const g = wc.createLinearGradient(0, top, 0, VH);
+      g.addColorStop(0, 'rgba(20,40,50,0)'); g.addColorStop(1, 'rgba(16,26,36,0.7)');
+      wc.fillStyle = g; wc.fillRect(x * TS, top + 2, TS, VH - top);
     }
   }
 }
-
-/* ui. simple boxes for now */
+/* ui. its all drawn in code to look like cells */
 const MEM = { edge: '#6fd6b8', edgeD: '#2f7f74', dark: '#0b1a1c', cyto: 'rgba(12,34,36,0.84)', hi: '#c8fff0', text: '#eafff6', dim: '#8fb8ae' };
 let ctxStack = [];
 function withCtx(c, fn) { ctxStack.push(ctx); ctx = c; try { fn(); } finally { ctx = ctxStack.pop(); } }
@@ -183,12 +298,27 @@ function pxRound(c, x, y, w, h, r, color, fromRow = 0) {
   }
 }
 function pxCircle(c, cx, cy, r, color) { pxRound(c, Math.round(cx - r), Math.round(cy - r), r * 2, r * 2, r, color); }
-/* plain box */
+/* a cell membrane panel: dark outline, the membrane ring, cytoplasm fill, a highlight, organelles */
 function membrane(x, y, w, h, r = 8, o = {}) {
-  const c = o.c || ctx;
+  const c = o.c || ctx, edge = o.edge || MEM.edge;
   x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
-  c.fillStyle = 'rgba(12,20,24,0.85)'; c.fillRect(x, y, w, h);
-  c.strokeStyle = o.edge || MEM.edge; c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (o.glow) { c.globalAlpha = o.glow; pxRound(c, x - 3, y - 3, w + 6, h + 6, r + 3, edge); c.globalAlpha = 1; }
+  pxRound(c, x - 1, y - 1, w + 2, h + 2, r + 1, MEM.dark);
+  pxRound(c, x, y, w, h, r, edge);
+  pxRound(c, x + 1, y + 1, w - 2, h - 2, r - 1, o.edgeD || MEM.edgeD);
+  pxRound(c, x + 2, y + 2, w - 4, h - 4, Math.max(1, r - 2), o.fill || MEM.cyto);
+  c.fillStyle = o.hi || MEM.hi; c.globalAlpha = 0.55;
+  c.fillRect(x + r, y + 1, Math.max(0, w - 2 * r), 1);
+  c.globalAlpha = 1;
+  if (o.dots) {
+    c.fillStyle = edge;
+    for (let i = 0; i < o.dots; i++) {
+      const hx = hash(i * 7 + w + h * 3), hy = hash(i * 13 + x * 0 + h), s = 1 + ((hash(i * 3 + 1) * 2) | 0);
+      c.globalAlpha = 0.18 + hash(i + 9) * 0.15;
+      c.fillRect(Math.round(x + 4 + hx * (w - 10)), Math.round(y + 4 + hy * (h - 10)), s, s);
+    }
+    c.globalAlpha = 1;
+  }
 }
 function pill(x, y, w, h = 14) { membrane(x, y, w, h, Math.floor(h / 2)); }
 
@@ -393,42 +523,43 @@ function finish() {
 }
 const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-const SKY = [['#9fd0e8', '#e6f2d8'], ['#a8c8e0', '#f0e2c8'], ['#b8b4d8', '#f2d8c0'], ['#8fb8d0', '#d8ecd8']];
+const BG_OFF = [0, 420, 760, 1100];
 function drawBackground(bgi, t, px) {
-  const [top, bot] = SKY[bgi % SKY.length], g = ctx.createLinearGradient(0, 0, 0, VH);
-  g.addColorStop(0, top); g.addColorStop(1, bot); ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
-  const par = ((px || VW / 2) - VW / 2);
-  for (const [k, col, h, f] of [[0.03, 'rgba(90,130,110,0.35)', 230, 0.011], [0.08, 'rgba(60,100,80,0.45)', 280, 0.017]]) {
-    ctx.fillStyle = col;
-    for (let x = 0; x < VW; x += 4) { const y = h + Math.sin((x + par * k + bgi * 90) * f) * 26 + Math.sin((x + bgi * 40) * f * 2.7) * 9; ctx.fillRect(x, Math.round(y), 4, VH - Math.round(y)); }
-  }
+  const off = BG_OFF[bgi % BG_OFF.length], par = ((px || VW / 2) - VW / 2);
+  const b3 = bgi % 2 ? IMG.bg3alt : IMG.bg3;
+  ctx.drawImage(b3, Math.round(off * 0.5 + t * 2) % (b3.width - VW), 0, VW, VH, 0, 0, VW, VH);
+  const o2 = Math.max(0, Math.min(IMG.bg2.width - VW, Math.round(off * 0.7 + par * 0.03)));
+  ctx.drawImage(IMG.bg2, o2, 0, VW, VH, 0, 0, VW, VH);
+  const o1 = Math.max(0, Math.min(IMG.bg1.width - VW, Math.round(off + par * 0.08)));
+  ctx.drawImage(IMG.bg1, o1, 0, VW, VH, 0, 0, VW, VH);
 }
 function easeBack(g) { return g >= 1 ? 1 : 1 + 2.7 * Math.pow(g - 1, 3) + 1.7 * Math.pow(g - 1, 2); }
 function drawPad(p) {
-  const g = easeBack(p.grow), sq = Math.sin(p.squish * Math.PI) * p.squish, ps = p.scale || 1;
-  const rx = 20 * ps * g * (1 + sq * 0.15), ry = 15 * ps * g * (1 - sq * 0.25);
-  if (rx < 1) return;
-  ctx.fillStyle = '#4fa0b0'; ctx.fillRect(Math.round(p.cx) - 1, Math.round(p.sy - ry), 3, Math.round(ry) + 4);
-  ctx.fillStyle = '#7fe6f0'; ctx.beginPath(); ctx.ellipse(Math.round(p.cx), Math.round(p.sy - ry), rx, ry * 0.6, 0, Math.PI, 0); ctx.fill();
+  const s = SPR.glow, g = easeBack(p.grow), sq = Math.sin(p.squish * Math.PI) * p.squish;
+  const ps = p.scale || 1;
+  const w = Math.round(s[2] * ps * g * (1 + sq * 0.15)), h = Math.round(s[3] * ps * g * (1 - sq * 0.25));
+  if (w < 1 || h < 1) return;
+  const glow = 0.25 + 0.1 * Math.sin(T * 3 + p.x);
+  ctx.fillStyle = `rgba(120,240,255,${glow * g})`;
+  ctx.beginPath(); ctx.ellipse(Math.round(p.cx), Math.round(p.sy - 14 * ps), 26 * g * ps, 18 * g * ps, 0, 0, 6.29); ctx.fill();
+  ctx.drawImage(IMG.tp, s[0], s[1], s[2], s[3], Math.round(p.cx - 22 * w / s[2]), Math.round(p.sy + 8 - h), w, h);
 }
 function drawCap(c) {
-  const sq = Math.sin(c.squish * Math.PI) * c.squish;
-  const st = c.segs[c.segs.length - 1];
-  ctx.fillStyle = '#d8c8a8'; ctx.fillRect(Math.round(st[0]) - 3, Math.round(st[1]), 6, Math.round(st[3] - st[1]));
-  ctx.fillStyle = '#b0503a'; ctx.beginPath();
-  for (let i = 0; i < c.segs.length - 1; i++) { const sg = c.segs[i]; ctx.lineTo(sg[0], sg[1] + sq * 3); }
-  ctx.closePath(); ctx.fill();
+  const s = SPR.bigMush, sq = Math.sin(c.squish * Math.PI) * c.squish;
+  const w = Math.round(s[2] * (1 + sq * 0.12)), h = Math.round(s[3] * (1 - sq * 0.18));
+  ctx.drawImage(IMG.tp, s[0], s[1], s[2], s[3], Math.round(c.ox + 35 - 35 * w / s[2]), Math.round(c.oy + s[3] - h), w, h);
 }
 function drawSwing(s) {
   ctx.strokeStyle = '#263030'; ctx.lineWidth = 1;
   const c = Math.cos(s.th), sn = Math.sin(s.th);
   for (const k of [-31, 31]) { ctx.beginPath(); ctx.moveTo(s.x + 0.5, s.y); ctx.lineTo(Math.round(s.lx + k * c) + 0.5, Math.round(s.ly - k * sn - 4)); ctx.stroke(); }
+  const L = SPR.log;
   ctx.save(); ctx.translate(Math.round(s.lx), Math.round(s.ly)); ctx.rotate(-s.th);
-  ctx.fillStyle = '#7a5032'; ctx.fillRect(-37, -5, 74, 10);
+  ctx.drawImage(IMG.tp, L[0], L[1], L[2], L[3], -39, -6, L[2], L[3]);
   ctx.restore();
 }
 function drawGoal(g, t) {
-  /* the cup */
+  /* the cup, just a soft glow in the ground */
   const k = G.phase === 'cleared' ? Math.min(1, G.phaseT * 2) : 0, p = 0.5 + 0.5 * Math.sin(t * 2);
   ctx.globalAlpha = 0.18 + 0.1 * p; pxCircle(ctx, g.x, g.y, 16 + k * 10, '#eaff8a');
   ctx.globalAlpha = 0.3 + 0.1 * p; pxCircle(ctx, g.x, g.y, 10 + k * 6, '#f4ffd0');
@@ -522,17 +653,15 @@ function drawParticles(dt) {
 
 /* drawing. one screen per hole */
 function drawSigns(w) {
-  const g = w.goal, top = g.y - 30;     // flag
-  ctx.fillStyle = '#eeeeee'; ctx.fillRect(Math.round(g.x) + 6, Math.round(top), 1, 38);
-  ctx.fillStyle = '#e04848'; ctx.beginPath(); ctx.moveTo(g.x + 7, top); ctx.lineTo(g.x + 21, top + 5); ctx.lineTo(g.x + 7, top + 10); ctx.fill();
-  ctx.fillStyle = '#f4f0e0'; ctx.fillRect(Math.round(w.start.x) - 1, Math.round(w.start.y + PHYS.R), 3, 3);   // tee
+  spr(ctx, 'start', w.start.x - 22, w.start.y + PHYS.R - SPR.start[3] + 3);
+  spr(ctx, 'goal', w.goal.x + 9, w.goal.y + 8 - SPR.goal[3] + 1);
 }
 function renderPlay(t, dt) {
   const w = G.w, H = HOLES[w.hi];
   drawBackground(H.bg, t, G.ball.x);
   ctx.drawImage(terrainCache, 0, 0);
   drawSigns(w);
-  for (const p of w.posts) { ctx.fillStyle = '#6a4a32'; ctx.fillRect(p.px + 4, p.py, 8, VH - p.py); }
+  for (const p of w.posts) spr(ctx, 'post', p.px, p.py);
   for (const c of w.caps) drawCap(c);
   for (const sw of w.swings) drawSwing(sw);
   w.flies.forEach((f, i) => drawFly(f, t, i));
@@ -583,24 +712,33 @@ function renderPlay(t, dt) {
 
 function renderTitle(t) {
   drawBackground(0, t, VW / 2 + Math.sin(t * 0.2) * 200);
+  ctx.fillStyle = 'rgba(10,24,26,0.25)'; ctx.fillRect(0, 0, VW, VH);
   const wy = 340;
-  ctx.fillStyle = 'rgba(70,130,190,0.7)'; ctx.fillRect(0, wy, VW, VH - wy);
+  for (let x = 0; x < VW; x += TS) { ctx.drawImage(IMG.tp, 4 * TS, 8 * TS, TS, TS, x, wy, TS, TS); for (let y = wy + TS; y < VH; y += TS) ctx.drawImage(IMG.tp, 5 * TS, 8 * TS, TS, TS, x, y, TS, TS); }
   const per = 1.6, ph = (t % per) / per, left = 230, right = 410;
   const goingRight = Math.floor(t / per) % 2 === 0;
   const bx = goingRight ? left + (right - left) * ph : right - (right - left) * ph, by = wy - 26 - Math.sin(ph * Math.PI) * 110;
   const sq = ph < 0.1 ? 1 - ph / 0.1 : ph > 0.9 ? (ph - 0.9) / 0.1 : 0;
   for (const [x, s] of [[left, goingRight ? sq * (ph < 0.5 ? 1 : 0) : sq * (ph > 0.5 ? 1 : 0)], [right, goingRight ? sq * (ph > 0.5 ? 1 : 0) : sq * (ph < 0.5 ? 1 : 0)]]) drawPad({ cx: x, sy: wy, x, grow: 1, squish: s * 0.8 });
   drawBall({ x: bx, y: by, vx: goingRight ? 120 : -120, vy: Math.cos(ph * Math.PI) * -200 }, t);
-  text('Spore Golf', VW / 2, 40, 6, '#f2fff8', 'center', '#0b1a1c');
-  text('every miss grows something', VW / 2, 100, 2, '#2f6f3a', 'center', null);
+  const word = 'Spore Golf', sc = 5, tw = [...word].reduce((a, ch) => a + textWidth(ch, sc) + (fontFor(sc) ? sc : 0), 0);
+  let x = VW / 2 - tw / 2;
+  for (let i = 0; i < word.length; i++) {
+    const b = Math.abs(Math.sin(t * 2.4 + i * 0.45)) * 8;
+    text(word[i], x, 60 - b, sc, i > 5 ? '#9ff4dc' : '#f2fff8', 'left', '#0b1a1c');
+    x += textWidth(word[i], sc) + (fontFor(sc) ? sc : 0);
+  }
+  text('every miss grows something', VW / 2, 114, 2, '#c8ffb0', 'center');
+  if (!ready()) { text(loadError ? `Missing assets/${loadError}` : 'Loading...', VW / 2, 180, 2, loadError ? '#ff8a6a' : MEM.text, 'center'); return; }
   const items = MENU();
   G.menu = Math.max(0, Math.min(items.length - 1, G.menu));
   items.forEach((it, i) => {
     const y = 148 + i * 26, sel = i === G.menu, wdt = 260;
-    membrane(VW / 2 - wdt / 2, y, wdt, 20, 10, { edge: it.disabled ? '#5f7f78' : sel ? '#9ff4dc' : MEM.edgeD });
-    text(it.label, VW / 2, y + 7, 1, it.disabled ? '#5f7f78' : sel ? '#f2fff8' : MEM.dim, 'center');
+    membrane(VW / 2 - wdt / 2, y, wdt, 20, 10, { edge: it.disabled ? '#5f7f78' : sel ? '#9ff4dc' : MEM.edgeD, glow: sel && !it.disabled ? 0.2 : 0 });
+    text(it.label, VW / 2, y + 5, 1, it.disabled ? '#5f7f78' : sel ? '#f2fff8' : MEM.dim, 'center');
   });
-  text('Drag back to fling  -  F aim with keys  -  R retry  -  M mute', VW / 2, 384, 1, '#ffffff', 'center');
+  text('Up/Down + Space, or click  -  drag back to fling  -  F aim with keys  -  R retry  -  M mute', VW / 2, 372, 1, MEM.text, 'center');
+  text(CREDIT_LINE, VW / 2, 386, 1, MEM.dim, 'center');
 }
 function menuHit(p) { const n = MENU().length; for (let i = 0; i < n; i++) { const y = 148 + i * 26; if (p.x > VW / 2 - 130 && p.x < VW / 2 + 130 && p.y > y && p.y < y + 20) return i; } return -1; }
 
@@ -608,7 +746,7 @@ function renderEnd(t, dt) {
   drawBackground(2, t, VW / 2);
   ctx.fillStyle = 'rgba(10,24,26,0.35)'; ctx.fillRect(0, 0, VW, VH);
   const wy = 352;
-  ctx.fillStyle = 'rgba(70,130,190,0.7)'; ctx.fillRect(0, wy, VW, VH - wy);
+  for (let x = 0; x < VW; x += TS) { ctx.drawImage(IMG.tp, 4 * TS, 8 * TS, TS, TS, x, wy, TS, TS); for (let y = wy + TS; y < VH; y += TS) ctx.drawImage(IMG.tp, 5 * TS, 8 * TS, TS, TS, x, y, TS, TS); }
   const R = G.run || newRun(), n = R.spores, shown = Math.min(n, Math.floor(G.endT * 8));
   for (let i = 0; i < Math.min(shown, 40); i++) { const x = 24 + ((i * 97) % 600) + hash(i) * 10; drawPad({ cx: x, sy: wy, x, grow: Math.min(1, (G.endT * 8 - i) / 5), squish: 0, scale: 0.8 + hash(i + 3) * 0.5 }); }
   text('Round complete', VW / 2, 16, 3, '#d8ffd0', 'center');
@@ -643,6 +781,7 @@ function frame(now) {
   if (G.state === 'play') renderPlay(T, dt);
   else if (G.state === 'end') renderEnd(T, dt);
   else if (ready()) renderTitle(T);
+  else { ctx.fillStyle = '#d6e6f0'; ctx.fillRect(0, 0, VW, VH); text(loadError ? `Missing assets/${loadError}` : 'Loading...', VW / 2, VH / 2, 2, loadError ? '#c0392b' : '#1a1424', 'center', null); }
   G.fade = Math.max(0, G.fade - dt * 2.5);
   if (G.fade > 0.01) { ctx.fillStyle = `rgba(8,20,22,${G.fade})`; ctx.fillRect(0, 0, VW, VH); }
   sctx.imageSmoothingEnabled = false;
