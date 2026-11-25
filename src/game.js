@@ -323,30 +323,35 @@ function membrane(x, y, w, h, r = 8, o = {}) {
 }
 function pill(x, y, w, h = 14) { membrane(x, y, w, h, Math.floor(h / 2)); }
 
-/* the round. 9 holes, get the spore in the cup in as few flings as u can */
-const LEVELS = HOLES.length;
+/* story mode. 21 generated levels, one artifact in each */
+const LEVELS = window.GEN.STORY_LEVELS;
 const G = {
-  state: 'load', w: null, ball: null, phase: 'play', phaseT: 0, roomT: 0, particles: [], popups: [],
+  state: 'load', mode: 'story', w: null, ball: null, phase: 'play', phaseT: 0, roomT: 0, particles: [], popups: [],
   aim: null, kbAim: { a: 40, p: 0.6, on: false }, level: 0, run: null, lastSafe: null, safeT: 0,
-  time: 0, flies: 0, fade: 1, endT: 0, sinkX: 0, sinkY: 0, padGrown: false, roomSpores: 0,
-  touch: false, hopQueued: false, trail: [], facing: 1, strokes: 0, card: [], menu: 0, cam: { x: 0, y: 0 },
+  time: 0, flies: 0, fade: 1, endT: 0, sinkX: 0, sinkY: 0, padGrown: false,
+  roomSpores: 0, touch: false, hopQueued: false, trail: [], facing: 1,
+  cam: { x: 0, y: 0 }, artifacts: [], menu: 0, airT: 0,
 };
-function newRun() { return { mods: Object.assign({}, window.SB.DEFAULT_MODS), preview: 1, airJumps: 0, spores: 0 }; }
+function newRun() {
+  return { mods: Object.assign({}, window.SB.DEFAULT_MODS), preview: 1, airJumps: 0, spores: 0 };
+}
 function vmax() { return PHYS.VMAX * (G.run ? G.run.mods.power : 1); }
 function startLevel(n) {
   G.level = n;
-  G.w = makeWorld(n, G.run.mods);
-  buildCaches(G.w);
+  G.w = window.GEN.makeGenWorld(n, G.run.mods);
   G.ball = makeBall(G.w.start.x, G.w.start.y);
-  G.lastSafe = { x: G.w.start.x, y: G.w.start.y }; G.safeT = 0;
+  G.lastSafe = { x: G.w.start.x, y: G.w.start.y }; G.safeT = 0; G.airT = 0;
   G.phase = 'play'; G.phaseT = 0; G.roomT = 0; G.particles = []; G.popups = []; G.trail = [];
-  G.aim = null; G.kbAim.on = false; G.state = 'play'; G.fade = 1; G.strokes = 0; G.roomSpores = 0;
+  G.aim = null; G.kbAim.on = false; G.state = 'play'; G.fade = 1; G.roomSpores = 0;
   G.facing = Math.sign(G.w.goal.x - G.w.start.x) || 1;
+  G.cam.x = G.ball.x - VW / 2; G.cam.y = G.ball.y - VH * 0.55;
+  chunkCache.clear();
+  window.GEN.loadAround(G.w, G.ball.x, G.ball.y, 2);
   resetAirCharges();
 }
-function newGame() { G.run = newRun(); G.time = 0; G.flies = 0; G.card = []; startLevel(0); }
+function newGame() { G.run = newRun(); G.time = 0; G.flies = 0; G.artifacts = []; startLevel(0); }
 function resetAirCharges() { if (G.ball && G.run) { G.ball.jumps = G.run.airJumps; G.ball.skips = G.run.mods.skips; G.ball.coyote = Math.max(G.ball.coyote, G.ball.grounded || G.ball.vy === 0 ? PHYS.COYOTE : 0); } }
-const MENU = () => [{ id: 'play', label: 'Play  -  9 holes' }, { id: 'practice', label: 'Practice  -  coming soon', disabled: true }];
+const MENU = () => [{ id: 'story', label: 'Story  -  21 artifacts' }, { id: 'endless', label: 'Endless  -  coming soon', disabled: true }];
 function menuSelect(i) {
   const it = MENU()[i]; if (!it || it.disabled) { AU.tick(); return; }
   AU.ui();
@@ -436,7 +441,6 @@ function currentAim() {
 function fling(vx, vy, p) {
   const b = G.ball;
   b.vx = vx; b.vy = vy; b.t = 0; b.restT = 0; b.padCombo = 0; b.coyote = 0;
-  G.strokes++;
   resetAirCharges();
   AU.shoot(p);
 }
@@ -469,6 +473,8 @@ function fixedUpdate(dt) {
   for (const p of w.pads) { if (p.grow < 1) p.grow = Math.min(1, p.grow + dt * 1.8); if (p.squish > 0) p.squish = Math.max(0, p.squish - dt * 3.5); }
   for (const c of w.caps) if (c.squish > 0) c.squish = Math.max(0, c.squish - dt * 3.5);
   G.time += dt; G.roomT += dt;
+  window.GEN.loadAround(w, b.x, b.y, 2);
+  updateCamera(dt);
   if (G.kbAim.on) {
     const k = keys;
     if (k.ArrowLeft || k.KeyA) G.kbAim.a = Math.min(180, G.kbAim.a + 70 * dt);
@@ -507,7 +513,10 @@ function fixedUpdate(dt) {
     const tx0 = Math.floor((b.x - 9) / TS), tx1 = Math.floor((b.x + 9) / TS), ty = Math.floor((b.y + PHYS.R + 2) / TS);
     const footing = ['#', '-'].includes(tileAt(w, tx0, ty)) && ['#', '-'].includes(tileAt(w, tx1, ty));
     if (b.grounded && !b.groundMoving && footing && Math.abs(b.vx) < 160) { G.safeT += dt; if (G.safeT > 0.15) G.lastSafe = { x: b.x, y: b.y }; } else G.safeT = 0;
-    if (r === 'goal') holed();
+    // fell way down into the dark under ur last spot
+    if (b.grounded) G.airT = 0; else G.airT += dt;
+    if (!b.grounded && b.y > G.lastSafe.y + 560 && G.airT > 1.2) lostInDark();
+    else if (r === 'goal') artifactFound();
     else if (r === 'sink') sink();
   } else if (G.phase === 'dead') {
     if (!G.padGrown && G.phaseT > 0.45) {
@@ -518,6 +527,7 @@ function fixedUpdate(dt) {
     if (G.phaseT > 1.25) respawn();
   } else if (G.phase === 'cleared') {
     const g = w.goal; b.x += (g.x - b.x) * Math.min(1, dt * 4); b.y += (g.y - b.y) * Math.min(1, dt * 4);
+    if (G.phaseT > 4.5) nextLevel();
   }
 }
 /* splash. the spore u leave behind turns into a glowcap */
@@ -526,7 +536,6 @@ function sink() {
   const sy = surfaceY(w, b.x, b.y) || b.y;
   AU.splash();
   R.spores++; G.roomSpores++;
-  if (sy < VH) burst(b.x, sy, 10, { color: ['#9fd8ff', '#e0f6ff'], speed: 90, life: 0.5, angle: -Math.PI / 2, spread: 1.2, g: 300 });
   G.phase = 'dead'; G.phaseT = 0; G.padGrown = false; G.sinkX = b.x; G.sinkY = b.y;
 }
 function die(manual) { if (manual) { G.phase = 'dead'; G.phaseT = 0.45; G.padGrown = true; AU.pop(); } }
@@ -535,17 +544,18 @@ function respawn() {
   G.phase = 'play'; G.trail = [];
   AU.pop();
 }
-function scoreName(n, par) {
-  if (n === 1) return 'Hole in one!';
-  const d = n - par;
-  return d <= -3 ? 'Albatross!' : d === -2 ? 'Eagle!' : d === -1 ? 'Birdie!' : d === 0 ? 'Par' : d === 1 ? 'Bogey' : d === 2 ? 'Double bogey' : `+${d}`;
+function lostInDark() {
+  const R = G.run; AU.pop();
+  popup('Lost in the dark', G.ball.x, G.ball.y - 20, '#b0b8ff');
+  R.spores++; G.roomSpores++;
+  G.phase = 'dead'; G.phaseT = 0.45; G.padGrown = true;
 }
-function holed() {
+function artifactFound() {
   G.phase = 'cleared'; G.phaseT = 0;
-  G.card[G.level] = G.strokes;
-  AU.holed(G.strokes <= HOLES[G.level].par);
-  const g = G.w.goal;
-  burst(g.x, g.y, 34, { color: ['#eaff8a', '#ffffff', '#fff6c0'], speed: 140, life: 1.2, g: 30 });
+  if (!G.artifacts.includes(G.level)) G.artifacts.push(G.level);
+  AU.holed(true);
+  const g = G.w.goal, col = G.w.L.info.artifact[2];
+  burst(g.x, g.y, 34, { color: [col, '#ffffff', '#fff6c0'], speed: 140, life: 1.2, g: 30 });
   G.ball.vx = G.ball.vy = 0;
 }
 function nextLevel() {
@@ -592,7 +602,7 @@ function drawSwing(s) {
   ctx.restore();
 }
 function drawGoal(g, t) {
-  /* the cup, just a soft glow in the ground */
+  /* the exit. just a soft rift of light, no sign */
   const k = G.phase === 'cleared' ? Math.min(1, G.phaseT * 2) : 0, p = 0.5 + 0.5 * Math.sin(t * 2);
   ctx.globalAlpha = 0.18 + 0.1 * p; pxCircle(ctx, g.x, g.y, 16 + k * 10, '#eaff8a');
   ctx.globalAlpha = 0.3 + 0.1 * p; pxCircle(ctx, g.x, g.y, 10 + k * 6, '#f4ffd0');
@@ -698,62 +708,156 @@ function drawTouchButtons() {
   }
 }
 
-/* drawing. one screen per hole */
-function drawSigns(w) {
-  spr(ctx, 'start', w.start.x - 22, w.start.y + PHYS.R - SPR.start[3] + 3);
-  spr(ctx, 'goal', w.goal.x + 9, w.goal.y + 8 - SPR.goal[3] + 1);
+/* drawing the world. endless chunks, the camera scrolls, deeper = darker */
+const CHUNK_PX = window.GEN.CH * TS;
+const chunkCache = new Map();
+function chunkCanvas(cx, cy) {
+  const k = cx + ',' + cy; let c = chunkCache.get(k);
+  if (c) return c;
+  const w = G.w, off = OFF[G.level % 2 ? 'green' : 'orange'], CHN = window.GEN.CH, PAD = TS;
+  const terr = document.createElement('canvas'); terr.width = CHUNK_PX; terr.height = CHUNK_PX + PAD * 2;
+  const wat = document.createElement('canvas'); wat.width = CHUNK_PX; wat.height = CHUNK_PX;
+  const tc = terr.getContext('2d'), wc = wat.getContext('2d'); tc.imageSmoothingEnabled = wc.imageSmoothingEnabled = false;
+  const S = (x, y) => tileAt(w, x, y) === '#';
+  for (let j = 0; j < CHN; j++) for (let i = 0; i < CHN; i++) {
+    const x = cx * CHN + i, y = cy * CHN + j, ch = tileAt(w, x, y), dx = i * TS, dy = j * TS + PAD, hsh = x * 31 + y * 17;
+    if (ch === '#') {
+      const up = S(x, y - 1), dn = S(x, y + 1), lf = S(x - 1, y), rt = S(x + 1, y);
+      let t;
+      if (!up && !lf) t = TSET.tl; else if (!up && !rt) t = TSET.tr; else if (!up) t = pick(TSET.t, hsh);
+      else if (!dn && !lf) t = TSET.bl; else if (!dn && !rt) t = TSET.br; else if (!dn) t = pick(TSET.b, hsh);
+      else if (!lf) t = pick(TSET.l, hsh); else if (!rt) t = pick(TSET.r, hsh);
+      else if (!S(x, y - 2)) t = pick(TSET.under, hsh); else t = pick(TSET.fill, hsh);
+      tile(tc, t, dx, dy, off);
+      if (!up && lf && rt && hash(hsh + 5) > 0.35 && tileAt(w, x, y - 1) === '.') tile(tc, pick(TSET.tuft, hsh + 2), dx, dy - TS, off);
+      if (!dn && TSET.drip[t[0]] && tileAt(w, x, y + 1) === '.') tile(tc, TSET.drip[t[0]], dx, dy + TS, off);
+    } else if (ch === '-') {
+      const l = tileAt(w, x - 1, y) === '-', r = tileAt(w, x + 1, y) === '-';
+      tile(tc, [!l ? 12 : !r ? 14 : 13, 10], dx, dy - 2);
+      if (hash(hsh) > 0.4) tile(tc, [12 + (Math.abs(hsh) % 2), 9], dx, dy - TS - 2);
+    } else if (ch === '~') {
+      const surf = tileAt(w, x, y - 1) !== '~';
+      tile(wc, surf ? [4, 8] : [5, 8], dx, j * TS);
+      let depth = 0; while (depth < 4 && tileAt(w, x, y - depth - 1) === '~') depth++;
+      wc.fillStyle = `rgba(14,24,34,${Math.min(0.6, depth * 0.18 + 0.05)})`; wc.fillRect(dx, j * TS + (surf ? 2 : 0), TS, surf ? TS - 2 : TS);
+    }
+  }
+  c = { terr, wat, deco: w.L.chunk(cx, cy).deco };
+  chunkCache.set(k, c);
+  if (chunkCache.size > 160) { for (const kk of chunkCache.keys()) { chunkCache.delete(kk); if (chunkCache.size < 120) break; } }
+  return c;
 }
+function visibleChunks(fn) {
+  const cx0 = Math.floor(G.cam.x / CHUNK_PX), cy0 = Math.floor((G.cam.y - TS) / CHUNK_PX);
+  const cx1 = Math.floor((G.cam.x + VW) / CHUNK_PX), cy1 = Math.floor((G.cam.y + VH + TS) / CHUNK_PX);
+  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) fn(cx, cy, chunkCanvas(cx, cy));
+}
+function updateCamera(dt) {
+  const b = G.ball, look = Math.max(-80, Math.min(80, b.vx * 0.35));
+  const tx = b.x - VW / 2 + look, ty = b.y - VH * 0.55 + Math.max(-40, Math.min(60, b.vy * 0.12));
+  const k = Math.min(1, dt * 5);
+  G.cam.x += (tx - G.cam.x) * k; G.cam.y += (ty - G.cam.y) * k;
+}
+function drawWorldBackground(t) {
+  const cam = G.cam, bgi = G.level % 4;
+  const b3 = bgi % 2 ? IMG.bg3alt : IMG.bg3;
+  const wrapDraw = (img, f, extra) => {
+    const span = img.width, sx = (((cam.x * f + extra) % span) + span) % span;
+    ctx.drawImage(img, sx, 0, Math.min(VW, span - sx), VH, 0, 0, Math.min(VW, span - sx), VH);
+    if (span - sx < VW) ctx.drawImage(img, 0, 0, VW - (span - sx), VH, span - sx, 0, VW - (span - sx), VH);
+  };
+  wrapDraw(b3, 0.05, t * 2 + bgi * 300);
+  wrapDraw(IMG.bg2, 0.15, bgi * 400);
+  wrapDraw(IMG.bg1, 0.3, bgi * 700);
+  // height tint. deeper gets darker and bluer, higher gets brighter and warmer
+  const alt = -(cam.y + VH / 2 - G.w.start.y) / TS;
+  if (alt < 0) { ctx.fillStyle = `rgba(6,14,24,${Math.min(0.62, -alt / 120)})`; ctx.fillRect(0, 0, VW, VH); }
+  else { ctx.fillStyle = `rgba(255,248,225,${Math.min(0.22, alt / 160)})`; ctx.fillRect(0, 0, VW, VH); }
+}
+function drawArtifact(g, t, info, k) {
+  const col = info.artifact[2], y = g.y + Math.sin(t * 1.8) * 3 - k * 20, x = g.x;
+  ctx.globalAlpha = (0.12 + 0.06 * Math.sin(t * 2)) * (1 - k);
+  ctx.fillStyle = col; ctx.fillRect(Math.round(x) - 3, Math.round(y) - 120, 6, 120);
+  ctx.globalAlpha = 0.25 * (1 - k * 0.5); pxCircle(ctx, x, y, 14 + k * 8, col);
+  ctx.globalAlpha = 0.45; pxCircle(ctx, x, y, 8, '#ffffff');
+  ctx.globalAlpha = 1;
+  // lil relic
+  const s = [[0, -7], [5, -2], [3, 6], [-3, 6], [-5, -2]];
+  ctx.fillStyle = MEM.dark;
+  for (let yy = -8; yy <= 7; yy++) { const hw = yy < -2 ? (yy + 8) : yy < 6 ? 6 - (yy + 2) * 0.25 : 3; ctx.fillRect(Math.round(x - hw - 1), Math.round(y + yy), Math.round(hw * 2 + 2), 1); }
+  ctx.fillStyle = col;
+  for (let yy = -7; yy <= 6; yy++) { const hw = yy < -2 ? (yy + 7) * 0.9 : yy < 6 ? 5 - (yy + 2) * 0.25 : 2; ctx.fillRect(Math.round(x - hw), Math.round(y + yy), Math.round(hw * 2), 1); }
+  ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.8; ctx.fillRect(Math.round(x - 2), Math.round(y - 4), 2, 3); ctx.globalAlpha = 1;
+  for (let i = 0; i < 6; i++) {
+    const a = t * 1.5 + i / 6 * 6.283, r = 13 + Math.sin(t * 2 + i) * 2 + k * 20;
+    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 3 + i); ctx.fillStyle = i % 2 ? col : '#ffffff';
+    ctx.fillRect(Math.round(x + Math.cos(a) * r), Math.round(y + Math.sin(a) * r * 0.6), 1, 1);
+  }
+  ctx.globalAlpha = 1;
+}
+
 function renderPlay(t, dt) {
-  const w = G.w, H = HOLES[w.hi];
-  drawBackground(H.bg, t, G.ball.x);
-  ctx.drawImage(terrainCache, 0, 0);
-  drawSigns(w);
-  for (const p of w.posts) spr(ctx, 'post', p.px, p.py);
-  for (const c of w.caps) drawCap(c);
-  for (const sw of w.swings) drawSwing(sw);
-  w.flies.forEach((f, i) => drawFly(f, t, i));
-  drawGoal(w.goal, t);
+  const w = G.w, L = w.L, cam = G.cam, cx = Math.round(cam.x), cy = Math.round(cam.y);
+  drawWorldBackground(t);
+  ctx.save(); ctx.translate(-cx, -cy);
+  const decos = [], vis = [];
+  visibleChunks((ccx, ccy, c) => { vis.push([ccx, ccy, c]); for (const d of c.deco) decos.push(d); });
+  for (const [name, tx, ty] of decos) { const s = SPR[name]; spr(ctx, name, tx * TS + 8 - s[2] / 2, ty * TS - s[3] + 2); }
+  for (const [ccx, ccy, c] of vis) ctx.drawImage(c.terr, ccx * CHUNK_PX, ccy * CHUNK_PX - TS);
+  for (const c of w.caps) if (Math.abs(c.ox - cam.x - VW / 2) < VW) drawCap(c);
+  w.flies.forEach((f, i) => { if (Math.abs(f.x - cam.x - VW / 2) < VW && Math.abs(f.y - cam.y - VH / 2) < VH) drawFly(f, t, i); });
+  drawArtifact(w.goal, t, L.info, G.phase === 'cleared' ? Math.min(1, G.phaseT) : 0);
   for (const p of w.pads) drawPad(p);
   for (let i = 0; i < G.trail.length; i++) { ctx.globalAlpha = i / G.trail.length * 0.5; ctx.fillStyle = '#fff2cc'; ctx.fillRect(Math.round(G.trail[i].x), Math.round(G.trail[i].y), 1, 1); }
   ctx.globalAlpha = 1;
   if (G.phase === 'dead') { const b = G.ball; if (G.phaseT < 0.4) drawBall({ x: b.x, y: b.y + G.phaseT * 30, vx: 0, vy: 0 }, t, 1 - G.phaseT * 2.2); }
   else drawBall(G.ball, t);
-  ctx.drawImage(waterCache, 0, 0);
+  for (const [ccx, ccy, c] of vis) ctx.drawImage(c.wat, ccx * CHUNK_PX, ccy * CHUNK_PX);
   if (G.phase === 'play' && (G.aim || G.kbAim.on)) drawAim(t);
   drawParticles(dt);
+  ctx.restore();
   if (G.aim) {
     ctx.strokeStyle = 'rgba(234,255,246,0.35)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(G.aim.sx + 0.5, G.aim.sy + 0.5); ctx.lineTo(G.aim.x + 0.5, G.aim.y + 0.5); ctx.stroke();
     ctx.fillStyle = 'rgba(234,255,246,0.6)'; ctx.fillRect(Math.round(G.aim.sx) - 1, Math.round(G.aim.sy) - 1, 3, 3);
   }
   // hud
-  const lvl = `Hole ${G.level + 1}/${LEVELS}  -  ${H.name}`;
-  pill(6, 4, textWidth(lvl) + 16); text(lvl, 14, 7, 1, MEM.text);
-  const sw = 170; pill(VW - sw - 6, 4, sw);
-  text(`Par ${H.par}`, VW - sw + 4, 7, 1, '#ffe9a8');
-  text(`Strokes ${G.strokes}`, VW - sw + 46, 7, 1, G.strokes > H.par ? '#ffb0b0' : MEM.text);
+  const lvl = `Level ${G.level + 1}/${LEVELS}  -  ${L.info.name}`;
+  pill(30, 4, textWidth(lvl) + 16); text(lvl, 38, 7, 1, MEM.text);
+  const alt = Math.round(-(G.ball.y - w.start.y) / TS);
+  const altS = (alt > 0 ? '+' : '') + alt + 'm';
+  const sw = 190; pill(VW - sw - 6, 4, sw);
+  ctx.drawImage(IMG.tp, SPR.glow[0], SPR.glow[1], SPR.glow[2], SPR.glow[3], VW - sw + 2, 5, 14, 11);
+  text(String(G.run.spores), VW - sw + 19, 7, 1, '#9ff4ff');
+  ctx.fillStyle = '#eaff8a'; ctx.fillRect(VW - sw + 40, 10, 2, 2); ctx.globalAlpha = 0.4; ctx.fillRect(VW - sw + 39, 9, 4, 4); ctx.globalAlpha = 1;
+  text(String(G.flies), VW - sw + 46, 7, 1, '#eaff8a');
+  text(altS, VW - sw + 70, 7, 1, alt < 0 ? '#9fb8ff' : '#ffe9a8');
+  text(fmtTime(G.time), VW - sw + 112, 7, 1, MEM.text);
   text(AU.muted ? 'M:off' : 'M:on', VW - 12, 7, 1, MEM.dim, 'right');
+  const jumps = G.ball.jumps || 0;
   drawTouchButtons();
-  if (G.roomT < 7 && G.phase === 'play' && H.hint) {
-    ctx.globalAlpha = Math.min(1, (7 - G.roomT) / 1.5);
-    const hw = textWidth(H.hint) + 16; pill(VW / 2 - hw / 2, 24, hw); text(H.hint, VW / 2, 27, 1, MEM.text, 'center'); ctx.globalAlpha = 1;
+  if (G.roomT < 8 && G.phase === 'play' && G.level === 0 && !G.touch) {
+    ctx.globalAlpha = Math.min(1, (8 - G.roomT) / 1.5);
+    const hint = 'A/D roll  -  Space hop  -  drag back from the ground to fling (or F to aim)';
+    const hw = textWidth(hint) + 16; pill(VW / 2 - hw / 2, 24, hw); text(hint, VW / 2, 27, 1, MEM.text, 'center'); ctx.globalAlpha = 1;
   }
-  if (G.roomT < 2.2 && G.phase === 'play') {
-    const k = G.roomT < 0.3 ? G.roomT / 0.3 : G.roomT > 1.7 ? (2.2 - G.roomT) / 0.5 : 1;
+  if (G.roomT < 2.6 && G.phase === 'play') {
+    const k = G.roomT < 0.3 ? G.roomT / 0.3 : G.roomT > 2.1 ? (2.6 - G.roomT) / 0.5 : 1;
     ctx.globalAlpha = Math.max(0, k);
-    text(`Hole ${G.level + 1}`, VW / 2, 104, 2, '#9ff4dc', 'center');
-    text(H.name, VW / 2, 132, 4, MEM.text, 'center');
-    text(`Par ${H.par}`, VW / 2, 176, 1, '#ffe9a8', 'center');
+    text(`Level ${G.level + 1}`, VW / 2, 104, 2, '#9ff4dc', 'center');
+    text(L.info.name, VW / 2, 132, 4, MEM.text, 'center');
+    text(`Somewhere here lies the ${L.info.artifact[0].replace(/^The /, '')}.`, VW / 2, 176, 1, L.info.artifact[2], 'center');
     ctx.globalAlpha = 1;
   }
   if (G.phase === 'cleared') {
-    const k = Math.min(1, G.phaseT * 3);
+    const k = Math.min(1, G.phaseT * 3), A = L.info.artifact;
     ctx.globalAlpha = k;
-    membrane(VW / 2 - 140, 116, 280, 90, 16, { dots: 12, glow: 0.25 });
-    text(scoreName(G.strokes, H.par), VW / 2, 128, 3, G.strokes <= H.par ? '#eaff8a' : '#ffd0a8', 'center');
-    text(`${G.strokes} stroke${G.strokes === 1 ? '' : 's'}  -  par ${H.par}`, VW / 2, 164, 1, MEM.text, 'center');
-    if (G.roomSpores) text(`${G.roomSpores} glowcap${G.roomSpores === 1 ? '' : 's'} grew from your misses`, VW / 2, 178, 1, '#9ff4ff', 'center');
-    if (G.phaseT > 1.2) { ctx.globalAlpha = k * (0.5 + 0.5 * Math.sin(t * 4)); text('Space to continue', VW / 2, 192, 1, MEM.dim, 'center'); }
+    membrane(VW / 2 - 160, 110, 320, 110, 16, { dots: 14, glow: 0.25, edge: A[2] });
+    text(`Artifact ${G.level + 1} of ${LEVELS}`, VW / 2, 120, 1, MEM.dim, 'center');
+    text(A[0], VW / 2, 136, 3, A[2], 'center');
+    text(`"${A[1]}"`, VW / 2, 176, 1, MEM.text, 'center');
+    text(G.roomSpores ? `${G.roomSpores} spore${G.roomSpores === 1 ? '' : 's'} left behind here  -  ${fmtTime(G.roomT)}` : `Not a single splash  -  ${fmtTime(G.roomT)}`, VW / 2, 194, 1, '#9ff4ff', 'center');
+    if (G.phaseT > 1.2) { ctx.globalAlpha = k * (0.5 + 0.5 * Math.sin(t * 4)); text('Space to continue', VW / 2, 208, 1, MEM.dim, 'center'); }
     ctx.globalAlpha = 1;
   }
 }
@@ -785,7 +889,7 @@ function renderTitle(t) {
     membrane(VW / 2 - wdt / 2, y, wdt, 20, 10, { edge: it.disabled ? '#5f7f78' : sel ? '#9ff4dc' : MEM.edgeD, glow: sel && !it.disabled ? 0.2 : 0 });
     text(it.label, VW / 2, y + 5, 1, it.disabled ? '#5f7f78' : sel ? '#f2fff8' : MEM.dim, 'center');
   });
-  text('Up/Down + Space, or click  -  A/D roll  -  Space hop  -  drag to fling  -  R retry  -  M mute', VW / 2, 372, 1, MEM.text, 'center');
+  text('Up/Down + Space, or click  -  A/D roll  -  Space hop  -  drag to fling  -  M mute', VW / 2, 372, 1, MEM.text, 'center');
   text(CREDIT_LINE, VW / 2, 386, 1, MEM.dim, 'center');
 }
 function menuHit(p) { const n = MENU().length; for (let i = 0; i < n; i++) { const y = 148 + i * 26; if (p.x > VW / 2 - 130 && p.x < VW / 2 + 130 && p.y > y && p.y < y + 20) return i; } return -1; }
@@ -797,21 +901,20 @@ function renderEnd(t, dt) {
   for (let x = 0; x < VW; x += TS) { ctx.drawImage(IMG.tp, 4 * TS, 8 * TS, TS, TS, x, wy, TS, TS); for (let y = wy + TS; y < VH; y += TS) ctx.drawImage(IMG.tp, 5 * TS, 8 * TS, TS, TS, x, y, TS, TS); }
   const R = G.run || newRun(), n = R.spores, shown = Math.min(n, Math.floor(G.endT * 8));
   for (let i = 0; i < Math.min(shown, 40); i++) { const x = 24 + ((i * 97) % 600) + hash(i) * 10; drawPad({ cx: x, sy: wy, x, grow: Math.min(1, (G.endT * 8 - i) / 5), squish: 0, scale: 0.8 + hash(i + 3) * 0.5 }); }
-  text('Round complete', VW / 2, 16, 3, '#d8ffd0', 'center');
-  // scorecard
-  const x0 = VW / 2 - 250, cw = 49, total = G.card.reduce((a, b) => a + (b || 0), 0), par = HOLES.reduce((a, h) => a + h.par, 0);
-  membrane(x0 - 10, 64, 520, 72, 14, { dots: 14 });
-  text('Hole', x0, 74, 1, MEM.dim); text('Par', x0, 94, 1, MEM.dim); text('You', x0, 114, 1, MEM.dim);
+  text('The Garden of Rebirth', VW / 2, 12, 3, '#d8ffd0', 'center');
+  text('Every spore you left behind took root here.', VW / 2, 44, 1, '#9ff4ff', 'center');
+  // all 21 artifacts sitting in the garden
   for (let i = 0; i < LEVELS; i++) {
-    const x = x0 + 60 + i * cw, sc = G.card[i], k = Math.max(0, Math.min(1, (G.endT - 0.3 - i * 0.1) * 3));
-    ctx.globalAlpha = k;
-    text(String(i + 1), x, 74, 1, MEM.text, 'center'); text(String(HOLES[i].par), x, 94, 1, '#ffe9a8', 'center');
-    text(sc == null ? '-' : String(sc), x, 114, 1, sc == null ? MEM.dim : sc <= HOLES[i].par ? '#eaff8a' : '#ffd0a8', 'center');
+    const A = window.GEN.ARTIFACTS[i], got = G.artifacts.includes(i), x = VW / 2 - 10 * 26 + i * 26, y = 74;
+    const k = Math.max(0, Math.min(1, (G.endT - 0.3 - i * 0.08) * 3));
+    ctx.globalAlpha = k * (got ? 1 : 0.25);
+    drawArtifact({ x, y }, t + i, { artifact: A }, 0);
   }
-  ctx.globalAlpha = Math.max(0, Math.min(1, (G.endT - 1.4) * 2));
-  const d = total - par;
-  text(`${total} strokes  -  ${d === 0 ? 'even par' : (d > 0 ? '+' : '') + d + ' to par'}  -  ${fmtTime(G.time)}`, VW / 2, 156, 2, MEM.text, 'center');
-  text(`${n} glowcap${n === 1 ? '' : 's'} grew from your misses  -  ${G.flies} firefl${G.flies === 1 ? 'y' : 'ies'}`, VW / 2, 190, 1, '#9ff4ff', 'center');
+  ctx.globalAlpha = 1;
+  membrane(VW / 2 - 200, 104, 400, 70, 16, { dots: 16 });
+  const rows = [['Time', fmtTime(G.time)], ['Artifacts', `${G.artifacts.length} / ${LEVELS}`], ['Spores left behind', String(R.spores)], ['Fireflies', String(G.flies)]];
+  rows.forEach(([a, b], i) => { ctx.globalAlpha = Math.max(0, Math.min(1, (G.endT - 1.6 - i * 0.3) * 2)); text(a, VW / 2 - 180, 113 + i * 14, 1, MEM.dim); text(b, VW / 2 + 180, 113 + i * 14, 1, MEM.text, 'right'); });
+  ctx.globalAlpha = Math.max(0, Math.min(1, (G.endT - 3) * 2));
   ctx.globalAlpha = G.endT > 3 ? 0.55 + 0.45 * Math.sin(t * 3) : 0;
   text('Click or press Space to return', VW / 2, 300, 1, MEM.text, 'center');
   ctx.globalAlpha = 1;
