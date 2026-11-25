@@ -56,7 +56,7 @@ const HOLES = [
       island(0, 8, 15); island(31, 39, 7); r(18, 17, 20, 24, '#'); water(18);
       p(4, 14, 'S'); p(35, 6, 'G'); p(26, 4, '*');
     }),
-    deco: [['stump', 19, 17], ['rockMoss', 33, 7], ['tree', 3, 15]] },
+    deco: [['rockMoss', 33, 7], ['tree', 3, 15]] },
   { name: 'Big Cap', par: 3, set: 'green', bg: 3,
     hint: 'The big mushroom bounces too.',
     map: build(({ island, water, p }) => {
@@ -80,7 +80,7 @@ const HOLES = [
       p(3, 14, 'S'); p(35, 14, 'G'); p(20, 12, '*');
     }),
     posts: [{ x: 12, top: 15 }, { x: 18, top: 13 }, { x: 24, top: 15 }],
-    deco: [['rockMoss', 33, 15], ['stump', 2, 15]] },
+    deco: [['rockMoss', 33, 15]] },
   { name: 'The Swing', par: 3, set: 'orange', bg: 2,
     hint: 'Time it with the swing.',
     map: build(({ island, water, p }) => {
@@ -245,10 +245,10 @@ function stepBall(w, b, dt, ev) {
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
     const c = tileAt(w, tx, ty);
     if (c === '#') {
-      let x0 = tx * TS, y0 = ty * TS, x1 = x0 + TS, y1 = y0 + TS;
-      if (isSolid(w, tx - 1, ty)) x0 -= TS; if (isSolid(w, tx + 1, ty)) x1 += TS;
-      if (isSolid(w, tx, ty - 1)) y0 -= TS; if (isSolid(w, tx, ty + 1)) y1 += TS;
-      collideRect(b, x0, y0, x1, y1, Math.min(0.88, P.E_GROUND + m.soilE), ev, 'soil');
+      /* two strips, each one only stretched one way */
+      const x0 = tx * TS, y0 = ty * TS, x1 = x0 + TS, y1 = y0 + TS, e = Math.min(0.88, P.E_GROUND + m.soilE);
+      collideRect(b, isSolid(w, tx - 1, ty) ? x0 - TS : x0, y0, isSolid(w, tx + 1, ty) ? x1 + TS : x1, y1, e, ev, 'soil');
+      collideRect(b, x0, isSolid(w, tx, ty - 1) ? y0 - TS : y0, x1, isSolid(w, tx, ty + 1) ? y1 + TS : y1, e, ev, 'soil');
     } else if (c === '-') {
       const top = ty * TS + 1;
       if (b.vy >= 0 && prevY + R <= top + 1.5 && b.y + R > top) {

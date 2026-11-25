@@ -21,7 +21,7 @@ function makePerlin(seed) {
 }
 function fbm(n, x, y, oct) { let a = 1, f = 1, s = 0, norm = 0; for (let i = 0; i < oct; i++) { s += a * n(x * f, y * f); norm += a; a *= 0.5; f *= 2.03; } return s / norm; }
 
-/* the 21 story levels */
+/* the story: 7 levels, picked from the 21 generated ones so each one is a real step up */
 const ARTIFACTS = [
   ['The First Seed', 'It remembers being a forest.', '#eaff8a'], ['Amber Tear', 'Sap from a tree that wept for a hundred years.', '#ffb35c'],
   ['Moss Lantern', 'It glows only in the dark.', '#8fe08a'], ['Root Bell', 'It rings underground. Something answers.', '#c9a27a'],
@@ -56,7 +56,6 @@ function makeLevel(n, seedOverride) {
   const dist = 26 + n * 6.5;
   const d = DIRS[n % DIRS.length], dl = Math.hypot(d[0], d[1]);
   const ax = Math.round(d[0] / dl * dist), ay = Math.round(d[1] / dl * dist * 0.8);
-  const openTh = 0.02 - prog * 0.06;          // later levels get bigger open caves
   const poolTh = 0.18 - prog * 0.14;          // later levels get more pools
 
   // the path: wobbly waypoints from the spawn to the artifact
@@ -74,27 +73,110 @@ function makeLevel(n, seedOverride) {
     segs.push({ x0, y0, x1, y1, minx: Math.min(x0, x1) - 4, maxx: Math.max(x0, x1) + 4, miny: Math.min(y0, y1) - 4, maxy: Math.max(y0, y1) + 4 });
   }
   const R_PATH = 2.6;
-  const branches = new Set(), solids = new Set(), clear = new Set();
+  /* floating islands */
+  const ICW = 27, ICH = 16;
+  const density = 0.86 - prog * 0.1;
+  const islandCache = new Map();
+  function islandIn(gx, gy) {
+    const k = gx + ',' + gy; if (islandCache.has(k)) return islandCache.get(k);
+    const h = i => hash2(gx * 7 + i, gy * 13 - i, seed + 77);
+    let isl = null;
+    if (h(0) < density) {
+      const big = h(5) < 0.22;
+      isl = { cx: gx * ICW + 5 + h(1) * (ICW - 10), cy: gy * ICH + 4 + h(2) * (ICH - 8),
+        a: big ? 15 + h(3) * 7 : 8 + h(3) * 7, b: big ? 8 + h(4) * 4 : 4.5 + h(4) * 3.5,
+        p: 1.6 + h(7) * 1.2, amp: 1.4, basin: h(6) < 0.3, id: gx * 31 + gy * 17 };
+      // keep open sky above the spawn and the artifact, both sit on their own island
+      const hits = (x0, x1, y0, y1) => isl.cx + isl.a > x0 && isl.cx - isl.a < x1 && isl.cy + isl.b + 1.5 > y0 && isl.cy - 3 < y1;
+      if (hits(-7, 7, -10, 0) || hits(ax - 6, ax + 6, ay - 8, ay + 1)) isl = null;
+    }
+    islandCache.set(k, isl); return isl;
+  }
+  const inIsland = (I, x, y) => {
+    const dx = (x + 0.5 - I.cx) / I.a; if (Math.abs(dx) >= 1) return false;
+    const ady = Math.abs(dx), edge = 1 - dx * dx;
+    let top = I.cy - 1 + nT(x * 0.05 + I.id * 0.37, I.id * 0.51) * I.amp + (1 - Math.sqrt(edge)) * 2.6;
+    if (I.basin && ady < 0.22) top += 1.7 * (1 - (dx / 0.22) ** 2);
+    const bowl = Math.pow(1 - Math.pow(ady, I.p), 0.75);                       // round chunky bottom
+    const bottom = I.cy + 0.8 + I.b * bowl * (0.85 + (nS(x * 0.045, I.id * 0.23) + 1) * 0.15);
+    return y + 0.5 >= top && y + 0.5 <= bottom;
+  };
+  const natural = (x, y) => {
+    const gx = Math.floor(x / ICW), gy = Math.floor(y / ICH);
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const I = islandIn(gx + i, gy + j); if (I && inIsland(I, x, y)) return true;
+    }
+    return false;
+  };
+  /* extra islands the level adds itself */
+  const extras = new Map();
+  const addIsland = (cx, top, a, b) => {
+    const I = { cx, cy: top + 1, a, b, p: 2.2, amp: 0.6, basin: false, id: 900 + extras.size * 7 };
+    for (let gx = Math.floor((cx - a) / ICW); gx <= Math.floor((cx + a) / ICW); gx++)
+      for (let gy = Math.floor((top - 2) / ICH); gy <= Math.floor((top + b + 2) / ICH); gy++) {
+        const k = gx + ',' + gy; if (!extras.has(k)) extras.set(k, []); extras.get(k).push(I);
+      }
+  };
+  const rawSolid = (x, y) => {
+    if (natural(x, y)) return true;
+    const L = extras.get(Math.floor(x / ICW) + ',' + Math.floor(y / ICH));
+    if (L) for (const I of L) if (inIsland(I, x, y)) return true;
+    return false;
+  };
+  const solidMemo = new Map();
+  /* solid ground minus random specks. a tile needs at least 4 solid neighbours to exist */
+  const baseSolid = (x, y) => {
+    const k = x * 4194304 + y; let v = solidMemo.get(k);
+    if (v !== undefined) return v;
+    v = false;
+    if (rawSolid(x, y)) { let n = 0; for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if ((i || j) && rawSolid(x + i, y + j)) n++; v = n >= 4; }
+    if (solidMemo.size > 400000) solidMemo.clear();
+    solidMemo.set(k, v); return v;
+  };
+  const branches = new Set(), solids = new Set(), clear = new Set(), isles = new Set();
   const key = (x, y) => x + ',' + y;
-  // ledges along the path so every climb has somewhere to stand
+  const pathDist = (x, y) => {
+    let best = 1e9;
+    for (const s of segs) {
+      const dx = s.x1 - s.x0, dy = s.y1 - s.y0, L2 = dx * dx + dy * dy;
+      let t = L2 ? ((x - s.x0) * dx + (y - s.y0) * dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+      best = Math.min(best, Math.hypot(x - (s.x0 + dx * t), y - (s.y0 + dy * t)));
+    }
+    return best;
+  };
+  const landNear = (x, y, r) => { for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) if (natural(x + i, y + j)) return true; return false; };
+  addIsland(0, 1, 10, 6);                       // spawn is on a real island
+  addIsland(ax, ay + 2, 8, 5);                  // and so is the artifact
+  const cores = [...extras.values()].flat().filter((I, i, a) => a.indexOf(I) === i).slice(0, 2);
+  const inCore = (x, y) => cores.some(I => inIsland(I, x, y));   // the path never digs through these two
+  /* footholds along the path, only where theres no land close by already */
   for (const s of segs) {
     const dx = s.x1 - s.x0, dy = s.y1 - s.y0, len = Math.hypot(dx, dy);
     const steep = Math.abs(dy) > Math.abs(dx) * 0.7;
-    const every = steep ? 4 : 6;
-    for (let t = 2; t < len; t += every) {
+    const every = steep ? 5 : 9;
+    for (let t = 3; t < len; t += every) {
       const x = Math.round(s.x0 + dx * t / len), y = Math.round(s.y0 + dy * t / len);
-      const side = Math.floor(t / every) % 2 ? 1 : -1;
-      if (steep) for (let k = 0; k < 3; k++) branches.add(key(x + side * (1 + k) - side, y + 2));
-      else for (let k = -1; k <= 1; k++) branches.add(key(x + k, y + 3));
+      if (Math.hypot(x, y) < 8 || Math.hypot(x - ax, y - ay) < 8) continue;
+      const side = Math.floor(t / every) % 2 ? 1 : -1, plank = hash2(x, y, seed + 5) < 0.1;
+      if (steep) {
+        if (landNear(x + side * 5, y + 2, 3)) continue;
+        if (plank) for (let k = 0; k < 3; k++) branches.add(key(x + side * k, y + 2));
+        else addIsland(x + side * 6.5, y + 2, 5.5 + hash2(x, y, seed + 6) * 2.5, 3.5 + hash2(x, y, seed + 7) * 1.5);
+      } else {
+        if (landNear(x, y + 3, 3)) continue;
+        if (plank) for (let k = -1; k <= 1; k++) branches.add(key(x + k, y + 3));
+        else addIsland(x, y + 3, 6 + hash2(x, y, seed + 6) * 3, 3.5 + hash2(x, y, seed + 7) * 2);
+      }
     }
   }
   // spawn ledge and the artifact nook
   for (let x = -3; x <= 3; x++) solids.add(key(x, 1));
-  for (let x = ax - 2; x <= ax + 2; x++) solids.add(key(x, ay + 2));
+  for (let x = ax - 2; x <= ax + 2; x++) solids.add(key(x, ay + 2));   // make sure theres a floor even if the noise dips
   for (let y = -4; y <= 0; y++) for (let x = -3; x <= 3; x++) clear.add(key(x, y));
   for (let y = ay - 3; y <= ay + 1; y++) for (let x = ax - 3; x <= ax + 3; x++) clear.add(key(x, y));
   for (const k of [...branches]) if (solids.has(k)) branches.delete(k);
 
+  const nearPath = (x, y) => { for (const s of segs) if (x >= s.minx - 2 && x <= s.maxx + 2 && y >= s.miny - 2 && y <= s.maxy + 2) return true; return false; };
   function carved(x, y) {
     for (const s of segs) {
       if (x < s.minx || x > s.maxx || y < s.miny || y > s.maxy) continue;
@@ -105,35 +187,51 @@ function makeLevel(n, seedOverride) {
     }
     return false;
   }
-  const baseSolid = (x, y) => fbm(nT, x * 0.036, y * 0.062, 4) > openTh;
+  /* the ground after the path gets carved */
+  const s1Memo = new Map(), s2Memo = new Map();
+  const memo = (M, k, f) => { let v = M.get(k); if (v === undefined) { v = f(); if (M.size > 300000) M.clear(); M.set(k, v); } return v; };
+  const stage1 = (x, y) => memo(s1Memo, x * 4194304 + y, () => {
+    const kk = key(x, y);
+    if (solids.has(kk)) return true;
+    if (clear.has(kk) || !baseSolid(x, y) || (carved(x, y) && !inCore(x, y))) return false;
+    if (!nearPath(x, y)) return true;
+    const cv = (i, j) => carved(i, j) && !inCore(i, j);
+    return !((cv(x, y - 1) && (cv(x, y + 1) || !baseSolid(x, y + 1))) || (cv(x - 1, y) && cv(x + 1, y)));
+  });
+  const around = (f, x, y) => { let n = 0; for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if ((i || j) && f(x + i, y + j)) n++; return n; };
+  const stage2 = (x, y) => memo(s2Memo, x * 4194304 + y, () => stage1(x, y) && (!nearPath(x, y) || around(stage1, x, y) >= 4));
+  const solidAfterCarve = (x, y) => stage2(x, y) && (!nearPath(x, y) || around(stage2, x, y) >= 4);
   function structural(x, y) {            // '#', '-', '.' before water gets added
     const k = key(x, y);
     if (solids.has(k)) return '#';
+    if (clear.has(k)) return '.';
+    if (isles.has(k)) return '#';
     if (branches.has(k)) return '-';
-    if (clear.has(k) || carved(x, y)) return '.';
-    return baseSolid(x, y) ? '#' : '.';
+    return solidAfterCarve(x, y) ? '#' : '.';
   }
-  const pathish = (x, y) => carved(x, y) || clear.has(key(x, y)) || branches.has(key(x, y));
+  const pathish = (x, y) => carved(x, y) || clear.has(key(x, y)) || branches.has(key(x, y)) || isles.has(key(x, y));
   const waterMemo = new Map();
   function water(x, y, depth) {
     const k = key(x, y);
     if (waterMemo.has(k)) return waterMemo.get(k);
     let res = false;
-    if (depth < 3 && structural(x, y) === '.' && !pathish(x, y) && fbm(nP, x * 0.06, y * 0.06, 2) > poolTh) {
+    if (depth < 3 && structural(x, y) === '.' && !pathish(x, y)) {
       const sup = (cx, cy) => { const b = structural(cx, cy + 1); return b === '#' || (b === '.' && water(cx, cy + 1, depth + 1)); };
       if (sup(x, y)) {
-        let ok = true;
+        // a pool fills its whole dip or nothing. find the walls then one noise sample decides
+        let ok = true, left = x, right = x;
         for (const dir of [-1, 1]) {
           let cx = x + dir, steps = 0;
           while (true) {
             const c = structural(cx, y);
             if (c === '#') break;
-            if (c !== '.' || pathish(cx, y) || !sup(cx, y) || ++steps > 14) { ok = false; break; }
+            if (c !== '.' || pathish(cx, y) || !sup(cx, y) || ++steps > 40) { ok = false; break; }
             cx += dir;
           }
+          if (dir < 0) left = cx + 1; else right = cx - 1;
           if (!ok) break;
         }
-        res = ok;
+        res = ok && right - left < 15 && right - left >= 2 && fbm(nP, left * 0.06, y * 0.06, 2) > poolTh;   // 3+ tiles wide, never a lonely puddle   // same answer for every tile in the dip
       }
     }
     if (depth === 0) waterMemo.set(k, res);
@@ -141,6 +239,77 @@ function makeLevel(n, seedOverride) {
   }
 
   const chunks = new Map();
+  /* rivals that guard the way */
+  const ambush = new Map();
+  {
+    const want = 1 + Math.round(prog * 6), pts2 = [];
+    let total = 0; for (const s of segs) total += Math.hypot(s.x1 - s.x0, s.y1 - s.y0);
+    const pointAt = d => { for (const s of segs) { const L = Math.hypot(s.x1 - s.x0, s.y1 - s.y0); if (d <= L) return [s.x0 + (s.x1 - s.x0) * d / L, s.y0 + (s.y1 - s.y0) * d / L]; d -= L; } return [ax, ay]; };
+    const okSurf = (x, y) => structural(x, y) === '#' && [1, 2, 3].every(k => structural(x, y - k) === '.') && !water(x, y - 1, 0) &&
+      [-1, 1].every(d => structural(x + d, y) === '#' && structural(x + d, y - 1) === '.');
+    for (let i = 0; i < want; i++) {
+      const [px, py] = pointAt(total * (0.3 + 0.6 * (i + 0.5) / want));
+      let found = null;
+      for (let r = 3; r <= 11 && !found; r++) for (const sx of [1, -1]) {
+        const x = Math.round(px + sx * r);
+        for (let y = Math.round(py) - 6; y <= Math.round(py) + 10 && !found; y++)
+          if (okSurf(x, y) && Math.hypot(x, y) > 11 && Math.hypot(x - ax, y - ay) > 6 && pts2.every(([qx, qy]) => Math.hypot(qx - x, qy - y) > 7)) found = [x, y];
+        if (found) break;
+      }
+      if (!found) continue;
+      pts2.push(found);
+      ambush.set(found[0] + ',' + found[1], 'shroom');
+    }
+  }
+  /* placing the scenery */
+  const DECO_FOOT = { rockS: [0, 27], rockM: [2, 52], rockMoss: [0, 63], rockBig: [0, 99], tree: [38, 68], pillarA: [0, 27], pillarB: [0, 25] };
+  const DECO_KINDS = ['rockS', 'rockM', 'rockMoss', 'tree', 'pillarA', 'pillarB', 'rockBig', 'rockS', 'rockMoss'];
+  const DCELL = 8, SINK = 3;
+  const isSurf = (x, y) => structural(x, y) === '#' && structural(x, y - 1) === '.' && !water(x, y - 1, 0);
+  const rectClear = (l, t, r, b) => {           // pixel rect: every tile it touches is open air (no water)
+    for (let ty = Math.floor(t / TS); ty <= Math.floor((b - 1) / TS); ty++) for (let tx = Math.floor(l / TS); tx <= Math.floor((r - 1) / TS); tx++)
+      if (structural(tx, ty) !== '.' || water(tx, ty, 0)) return false;
+    return true;
+  };
+  const overlaps = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+  /* big bouncy caps. the stem goes on one ground tile, the whole 70x56 picture has to be in open air */
+  const capMemo = new Map();
+  function capAt(x, y) {
+    const k = x * 4194304 + y; if (capMemo.has(k)) return capMemo.get(k);
+    let c = null;
+    if (hash2(x, y, seed) > 0.985 && isSurf(x, y) && !pathish(x, y - 1) && Math.hypot(x, y) > 6 && Math.hypot(x - ax, y - ay) > 6) {
+      const l = x * TS - 11, t = y * TS - 56;
+      if ([-1, 0, 1, 2].every(d => isSurf(x + d, y)) && rectClear(l, t - TS, l + 70, y * TS)) c = { tx: x + 1, ty: y - 1, l, t, r: l + 70, b: y * TS };
+    }
+    capMemo.set(k, c); return c;
+  }
+  const decoMemo = new Map();
+  function rawDeco(cell, y) {
+    const k = cell * 4194304 + y; if (decoMemo.has(k)) return decoMemo.get(k);
+    let best = null;
+    if (hash2(cell, y, seed + 77) < 0.62) for (let x = cell * DCELL; x < cell * DCELL + DCELL; x++) {
+      if (!isSurf(x, y)) continue;
+      const kind = DECO_KINDS[Math.floor(hash2(x, y, seed + 9) * DECO_KINDS.length)], S = SB.SPR[kind], F = DECO_FOOT[kind];
+      const l = x * TS + 8 - Math.round((F[0] + F[1]) / 2), r = l + S[2], b = y * TS + SINK, t = b - S[3];
+      if (l < cell * DCELL * TS || r > (cell + 1) * DCELL * TS) continue;            // stays inside its stretch
+      let ok = Math.hypot(x, y) > 4 && Math.hypot(x - ax, y - ay) > 5;
+      for (let tx = Math.floor((l + F[0]) / TS) - 1; tx <= Math.floor((l + F[1]) / TS) + 1 && ok; tx++) if (!isSurf(tx, y)) ok = false;   // flat base thats supported, never on a rounded edge tile
+      if (ok) ok = rectClear(l, t - TS, r, y * TS);                                    // nothing sticking into the picture
+      if (ok) for (let cy = y - 6; cy <= y + 6 && ok; cy++) for (let cx = x - 7; cx <= x + 7 && ok; cx++) { const c = capAt(cx, cy); if (c && overlaps({ l, t, r, b }, c)) ok = false; }
+      const hh = hash2(x, y, seed + 9001);
+      if (ok && (!best || hh > best.h)) best = { kind, x, y, l, t, r, b, h: hh };
+    }
+    decoMemo.set(k, best); return best;
+  }
+  function decoAt(cell, y) {                   // a prop stays unless a bigger one next to it overlaps
+    const d = rawDeco(cell, y); if (!d) return null;
+    for (let oc = -1; oc <= 1; oc++) for (let oy = -6; oy <= 6; oy++) {
+      if (!oc && !oy) continue;
+      const n = rawDeco(cell + oc, y + oy);
+      if (n && (n.h > d.h || (n.h === d.h && (oc > 0 || (!oc && oy > 0)))) && overlaps(d, n)) return null;
+    }
+    return d;
+  }
   function chunk(cx, cy) {
     const k = cx + ',' + cy; let c = chunks.get(k);
     if (c) return c;
@@ -149,7 +318,7 @@ function makeLevel(n, seedOverride) {
       const x = cx * CH + i, y = cy * CH + j, s = structural(x, y);
       t[j * CH + i] = s === '.' && water(x, y, 0) ? '~' : s;
     }
-    c = { cx, cy, t, flies: [], caps: [], deco: [] };
+    c = { cx, cy, t, flies: [], caps: [], deco: [], enemies: [] };
     chunks.set(k, c);
     // stuff that lives in this chunk
     for (let j = 0; j < CH; j++) for (let i = 0; i < CH; i++) {
@@ -158,9 +327,20 @@ function makeLevel(n, seedOverride) {
       const above = structural(x, y - 1), above2 = structural(x, y - 2);
       if (above !== '.' || above2 !== '.' || water(x, y - 1, 0)) continue;
       const h = hash2(x, y, seed);
-      if (h < 0.016 - prog * 0.008 && structural(x, y - 3) === '.') c.flies.push({ x: x * TS + 8, y: (y - 2) * TS + 4, got: false, id: k + ':' + i + ':' + j });
-      else if (h > 0.985 && !pathish(x, y - 1) && [1, 2, 3].every(dx => structural(x + dx, y) === '#' && structural(x + dx, y - 1) === '.' && structural(x + dx, y - 4) === '.') && structural(x, y - 4) === '.') c.caps.push({ tx: x + 1, ty: y - 1 });
-      else if (h > 0.9) c.deco.push([['rockS', 'rockM', 'rockMoss', 'stump', 'tree', 'pillarA'][Math.floor(hash2(x, y, seed + 9) * 6)], x, y]);
+      const cap = capAt(x, y);
+      if (h < 0.016 - prog * 0.008 && structural(x, y - 3) === '.' && !cap) c.flies.push({ x: x * TS + 8, y: (y - 2) * TS + 4, got: false, id: k + ':' + i + ':' + j });
+      if (cap) c.caps.push({ tx: cap.tx, ty: cap.ty });
+      const d = decoAt(Math.floor(x / DCELL), y);
+      if (d && d.x === x) c.deco.push([d.kind, d.l, d.t]);          // props keep their exact pixel position
+      /* rivals: shroomlings walk on flat ground */
+      let underCap = false; for (let qy = y - 1; qy <= y + 1 && !underCap; qy++) for (let qx = x - 4; qx <= x + 3; qx++) if (capAt(qx, qy)) { underCap = true; break; }
+      const he = hash2(x, y, seed + 404), far = Math.hypot(x, y) > 22 && Math.hypot(x - ax, y - ay) > 7 && !underCap;
+      const guard = underCap ? null : ambush.get(x + ',' + y);
+      if (guard === 'shroom') c.enemies.push({ type: 'shroom', x: x * TS + 8, y: (y - 1) * TS + 8, id: k + ':a' + i + ':' + j });
+      else if (far && structural(x, y - 3) === '.') {
+        const flat = [-1, 1].every(d => structural(x + d, y) === '#' && structural(x + d, y - 1) === '.');
+        if (flat && he < 0.013 + prog * 0.02) c.enemies.push({ type: 'shroom', x: x * TS + 8, y: (y - 1) * TS + 8, id: k + ':a' + i + ':' + j });
+      }
     }
     return c;
   }
@@ -176,9 +356,10 @@ function makeLevel(n, seedOverride) {
   };
 }
 
-/* a world object the physics (SB.stepBall) knows how to use */
+
 function makeGenWorld(n, mods, seedOverride) {
   const L = makeLevel(n, seedOverride);
+  L.story = n;
   return { L, hi: -1, infinite: true, tileFn: L.tileAt, tiles: null, pads: [], caps: [], posts: [], swings: [], flies: [],
     start: { x: L.spawn.x, y: L.spawn.y }, goal: { x: L.artifact.x, y: L.artifact.y, tx: L.artifact.tx, ty: L.artifact.ty }, goalR: 15,
     time: 0, mirror: false, mods: Object.assign({}, SB.DEFAULT_MODS, mods || {}), loaded: new Set() };
@@ -192,8 +373,9 @@ function loadAround(w, x, y, radiusChunks) {
     const c = w.L.chunk(cx, cy);
     for (const f of c.flies) w.flies.push(f);
     for (const cp of c.caps) w.caps.push(SB.makeCap(cp.tx, cp.ty));
+    for (const e of c.enemies) (w.spawnQ = w.spawnQ || []).push(e);
   }
 }
-root.GEN = { makeGenWorld, loadAround, makeLevel, levelInfo, ARTIFACTS, STORY_LEVELS: 21, CH, hash2, mulberry32 };
+root.GEN = { makeGenWorld, loadAround, makeLevel, levelInfo, ARTIFACTS, STORY_LEVELS: ARTIFACTS.length, CH, hash2, mulberry32 };
 if (typeof module !== 'undefined') module.exports = root.GEN;
 })(typeof window !== 'undefined' ? window : globalThis);
