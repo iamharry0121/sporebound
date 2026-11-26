@@ -22,6 +22,7 @@ function makePerlin(seed) {
 function fbm(n, x, y, oct) { let a = 1, f = 1, s = 0, norm = 0; for (let i = 0; i < oct; i++) { s += a * n(x * f, y * f); norm += a; a *= 0.5; f *= 2.03; } return s / norm; }
 
 /* the story: 7 levels, picked from the 21 generated ones so each one is a real step up */
+const STORY_MAP = [0, 1, 2, 5, 9, 14, 20];
 const ARTIFACTS = [
   ['The First Seed', 'It remembers being a forest.', '#eaff8a'], ['Amber Tear', 'Sap from a tree that wept for a hundred years.', '#ffb35c'],
   ['Moss Lantern', 'It glows only in the dark.', '#8fe08a'], ['Root Bell', 'It rings underground. Something answers.', '#c9a27a'],
@@ -363,8 +364,66 @@ function makeLevel(n, seedOverride) {
 }
 
 
+/* the garden of rebirth, a handmade map (not generated) */
+const GARDEN_TERRACES = [[-64, -44, 0], [-44, -30, -1], [-30, -16, 0], [-16, -6, -2], [-6, 7, -3], [7, 16, -2], [16, 30, -1], [30, 46, 0], [46, 64, -2]];
+const GARDEN_ISLETS = [[-37, -8, 5, 2], [-22, -12, 4, 2], [-8, -15, 4, 2], [22, -11, 5, 2], [38, -14, 4, 2], [52, -10, 4, 2]];
+function makeGarden() {
+  const seed = 4242, TSZ = TS;
+  const groundAt = x => { for (const [a, b, h] of GARDEN_TERRACES) if (x >= a && x < b) return h; return -40; };
+  function structural(x, y) {
+    if (x < -64 || x >= 64) return y >= -42 ? '#' : '.';                       // the cliffs on each side of the valley
+    if (y >= groundAt(x)) return '#';
+    for (const [cx, cy, a, b] of GARDEN_ISLETS) { const u = (x + 0.5 - cx) / a, v = (y + 0.5 - cy) / b; if (v >= -0.2 && u * u + v * v <= 1) return '#'; }
+    return '.';
+  }
+  const flat = (x, y, w) => { for (let i = 0; i < w; i++) if (structural(x + i, y) !== '#' || structural(x + i, y - 1) !== '.') return false; return true; };
+  const CAPS = [-52, -26, 34, 58], FOOT = { rockS: [0, 27], rockMoss: [0, 63], tree: [38, 68], pillarB: [0, 25], rockM: [2, 52] };
+  const DECO = [['tree', -48], ['rockMoss', -38], ['rockS', -20], ['pillarB', 12], ['rockM', 26], ['tree', 40], ['rockMoss', 48]];
+  const chunks = new Map();
+  function chunk(cx, cy) {
+    const k = cx + ',' + cy; let c = chunks.get(k);
+    if (c) return c;
+    const t = new Array(CH * CH);
+    for (let j = 0; j < CH; j++) for (let i = 0; i < CH; i++) t[j * CH + i] = structural(cx * CH + i, cy * CH + j);
+    c = { cx, cy, t, flies: [], caps: [], deco: [], enemies: [] };
+    chunks.set(k, c);
+    for (let i = 0; i < CH; i++) {
+      const x = cx * CH + i;
+      for (let j = 0; j < CH; j++) {
+        const y = cy * CH + j;
+        if (t[j * CH + i] !== '#' || structural(x, y - 1) !== '.') continue;
+        if (y !== groundAt(x)) continue;
+        if (CAPS.includes(x) && flat(x - 1, y, 4)) c.caps.push({ tx: x + 1, ty: y - 1 });
+        for (const [kind, dx] of DECO) if (dx === x && SB.SPR[kind]) {
+          const S = SB.SPR[kind], F = FOOT[kind], l = x * TSZ + 8 - Math.round((F[0] + F[1]) / 2), b = y * TSZ + 3;
+          c.deco.push([kind, l, b - S[3]]);
+        }
+        // fireflies over every bit of ground
+        for (let k2 = 0; k2 < 2; k2++) if (hash2(x, y + k2 * 7, seed) < 0.22 && Math.abs(x) > 3) c.flies.push({ x: x * TSZ + 8, y: (y - 2 - k2 * 2 - Math.floor(hash2(x, k2, seed + 1) * 3)) * TSZ + 4, got: false, id: 'g' + x + ':' + y + ':' + k2 });
+      }
+    }
+    return c;
+  }
+  function tileAt(x, y) { const cx = Math.floor(x / CH), cy = Math.floor(y / CH); return chunk(cx, cy).t[(y - cy * CH) * CH + (x - cx * CH)]; }
+  const fy = groundAt(0);
+  return {
+    n: 'garden', seed, garden: true, info: { name: 'The Garden of Rebirth', artifact: ['The Garden', 'Every spore you left behind took root here.', '#d8ffd0'] },
+    tileAt, chunk, chunks, CH, groundAt,
+    spawn: { x: -52 * TS + 8, y: groundAt(-52) * TS - SB.PHYS.R },
+    artifact: { x: 0 * TS + 8, y: fy * TS - 26, tx: 0, ty: fy - 1 },
+    path: [[-58, 0], [0, fy]],
+  };
+}
+function makeGardenWorld(mods) {
+  const L = makeGarden();
+  return { L, hi: -1, infinite: true, tileFn: L.tileAt, tiles: null, pads: [], caps: [], posts: [], swings: [], flies: [],
+    start: { x: L.spawn.x, y: L.spawn.y }, goal: { x: L.artifact.x, y: L.artifact.y, tx: 0, ty: L.artifact.ty }, goalR: 22,
+    time: 0, mirror: false, mods: Object.assign({}, SB.DEFAULT_MODS, mods || {}), loaded: new Set(), garden: true };
+}
+
+/* a world object the physics (SB.stepBall) knows how to use */
 function makeGenWorld(n, mods, seedOverride) {
-  const L = makeLevel(n, seedOverride);
+  const L = makeLevel(seedOverride != null ? n : (STORY_MAP[n] ?? n), seedOverride);
   L.story = n;
   return { L, hi: -1, infinite: true, tileFn: L.tileAt, tiles: null, pads: [], caps: [], posts: [], swings: [], flies: [],
     start: { x: L.spawn.x, y: L.spawn.y }, goal: { x: L.artifact.x, y: L.artifact.y, tx: L.artifact.tx, ty: L.artifact.ty }, goalR: 15,
@@ -382,6 +441,6 @@ function loadAround(w, x, y, radiusChunks) {
     for (const e of c.enemies) (w.spawnQ = w.spawnQ || []).push(e);
   }
 }
-root.GEN = { makeGenWorld, loadAround, makeLevel, levelInfo, ARTIFACTS, STORY_LEVELS: ARTIFACTS.length, CH, hash2, mulberry32 };
+root.GEN = { makeGardenWorld, makeGenWorld, loadAround, makeLevel, levelInfo, ARTIFACTS, STORY_LEVELS: STORY_MAP.length, STORY_MAP, CH, hash2, mulberry32 };
 if (typeof module !== 'undefined') module.exports = root.GEN;
 })(typeof window !== 'undefined' ? window : globalThis);

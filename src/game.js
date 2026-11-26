@@ -34,6 +34,7 @@ const screen = document.getElementById('game');
 const sctx = screen.getContext('2d');
 const lo = document.createElement('canvas'); lo.width = VW; lo.height = VH;
 let ctx = lo.getContext('2d');
+const VX = window.makeVFX({ G: null, VW, VH, get ctx() { return ctx; } });
 ctx.imageSmoothingEnabled = false;
 function resize() {
   const r = screen.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
@@ -538,7 +539,7 @@ function drawFX(dt) {
   }
 }
 
-/* story mode. 21 generated levels, one artifact in each */
+/* story mode. 7 generated levels, one artifact in each, then the garden */
 const LEVELS = window.GEN.STORY_LEVELS;
 const RARITY = [
   { name: 'Common', color: '#cfe3dc', mid: '#5f7f78', deep: '#18302f', w: 50 },
@@ -556,6 +557,7 @@ const G = { ts: 1,
 };
 try { G.best = JSON.parse(localStorage.getItem('sporebound_story_best') || 'null'); G.save = JSON.parse(localStorage.getItem('sporebound_story_save') || 'null'); } catch (e) { }
 const MUT = Object.fromEntries(MUTATIONS.map(m => [m.id, m]));
+VX.bind(G);
 function newRun() {
   return { dna: 100, dnaMax: 100, dnaShown: 100, dnaLag: 100, splashCost: 1, mods: Object.assign({}, window.SB.DEFAULT_MODS),
     preview: 1, flyHeal: 10, secondWind: false, lure: false, airJumps: 0, airSlings: 1, trueSight: false, undertow: false,
@@ -589,6 +591,7 @@ function startLevel(n) {
   window.GEN.loadAround(G.w, G.ball.x, G.ball.y, 2);
   resetAirCharges();
   fx('warp', G.ball.x, G.ball.y, { sc: 0.8 });
+  VX.clear(); G.fade = 0; G.leaving = false; VX.iris(1, VW / 2, VH * 0.55, 0.8);
   saveProgress();
 }
 function newGame() { G.run = newRun(); G.time = 0; G.flies = 0; G.kills = 0; CB.S.kills = 0; G.artifacts = []; G.draft = null; startLevel(0); }
@@ -608,7 +611,7 @@ function saveProgress() {
 }
 function clearSave() { G.save = null; try { localStorage.removeItem('sporebound_story_save'); } catch (e) { } }
 function resetAirCharges() { if (G.ball && G.run) { G.ball.jumps = G.run.airJumps; G.ball.slings = G.run.airSlings; G.ball.skips = G.run.mods.skips; G.ball.coyote = Math.max(G.ball.coyote, G.ball.grounded || G.ball.vy === 0 ? PHYS.COYOTE : 0); } }
-const MENU = () => [...(G.save ? [{ id: 'continue', label: `Continue  -  level ${G.save.level + 1} of ${LEVELS}` }] : []), { id: 'story', label: 'Story  -  21 artifacts' }, { id: 'endless', label: 'Endless  -  coming soon', disabled: true }];
+const MENU = () => [...(G.save ? [{ id: 'continue', label: `Continue  -  level ${G.save.level + 1} of ${LEVELS}` }] : []), { id: 'story', label: 'Story  -  7 artifacts and a garden' }, { id: 'endless', label: 'Endless  -  coming soon', disabled: true }];
 function menuSelect(i) {
   const it = MENU()[i]; if (!it || it.disabled) { AU.tick(); return; }
   AU.ui();
@@ -637,7 +640,7 @@ screen.addEventListener('pointerdown', e => {
   if (G.touch) for (const k in TBTN) {
     const [bx, by, br] = TBTN[k];
     if ((p.x - bx) ** 2 + (p.y - by) ** 2 < (br + 6) ** 2) {
-      if (k === 'listen') { if (!G.oracle && G.askCd <= 0 && !CB.elderActive()) { summonOracle(); G.askCd = 6; } return; }
+      if (k === 'listen') { if (!G.oracle && G.askCd <= 0 && !CB.elderActive() && !(G.w && G.w.garden)) { summonOracle(); G.askCd = 6; } return; }
       touchHeld[k] = e.pointerId; if (k === 'hop') G.hopQueued = true; return;
     }
   }
@@ -700,7 +703,7 @@ window.addEventListener('keydown', e => {
   if ((e.code === 'Escape' && !G.kbAim.on) || e.code === 'KeyP') { G.paused = !G.paused; AU.tick(); return; }
   if (G.paused) { if (go) G.paused = false; return; }
   if (G.phase !== 'play') return;
-  if (e.code === 'KeyQ' && !G.oracle && G.askCd <= 0 && !CB.elderActive()) { summonOracle(); G.askCd = 6; return; }
+  if (e.code === 'KeyQ' && !G.oracle && G.askCd <= 0 && !CB.elderActive() && !(G.w && G.w.garden)) { summonOracle(); G.askCd = 6; return; }
   if (G.kbAim.on) {
     if (go) { if (canSling()) { const a = G.kbAim.a * Math.PI / 180, v = G.kbAim.p * vmax(); fling(Math.cos(a) * v, -Math.sin(a) * v, G.kbAim.p); } G.kbAim.on = false; }
     if (e.code === 'KeyF' || e.code === 'Escape' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') G.kbAim.on = false;
@@ -730,6 +733,7 @@ function fling(vx, vy, p) {
   const air = !grounded();
   b.vx = vx; b.vy = vy; b.t = 0; b.restT = 0; b.padCombo = 0; b.coyote = 0;
   AU.shoot(p);
+  { const back = Math.atan2(-vy, -vx); VX.sparkBurst(b.x, b.y, 6 + Math.round(p * 6), { angle: back, spread: 1.1, speed: 120 + p * 140, col: '#ffe6a8', life: 0.28 }); VX.ring(b.x, b.y, 10 + p * 10, { flat: 1, speed: 90 }); VX.kick(0.04 + p * 0.08, -vx / 500, -vy / 500); }
   if (air) { b.slings = Math.max(0, (b.slings || 0) - 1); fx('sparkG', b.x, b.y, { sc: 0.9 }); burst(b.x, b.y, 6, { color: ['#9ff4dc', '#c8fff0'], speed: 70, life: 0.35 }); return; }
   resetAirCharges();
   fx('dust', b.x, b.y + 2, { sc: 0.8 });
@@ -756,7 +760,7 @@ function burst(x, y, n, o = {}) {
 }
 function popup(s, x, y, color) { G.popups.push({ s, x, y, t: 0, color: color || MEM.text }); }
 /* rivals + toxin blast are in src/combat.js */
-const CB = window.makeCombat({ G, get ctx() { return ctx; }, tileAt, fx, burst, popup, AU, TS, MEM, PHYS, pxCircle, IMG });
+const CB = window.makeCombat({ G, get ctx() { return ctx; }, tileAt, fx, burst, popup, AU, TS, MEM, PHYS, pxCircle, IMG, VX });
 
 /* update */
 function fixedUpdate(dt) {
@@ -769,7 +773,8 @@ function fixedUpdate(dt) {
   if (R.dnaLag > R.dnaShown) R.dnaLag = Math.max(R.dnaShown, R.dnaLag - 40 * dt); else R.dnaLag = R.dnaShown;
   if (G.phase === 'draft') { if (G.draft) updateDraft(dt); return; }
   G.time += dt; G.roomT += dt; if (G.askCd > 0) G.askCd -= dt;
-  if (G.phase !== 'cleared') updateOracle(dt);
+  if (G.w && G.w.garden) gardenUpdate(dt);
+  if (G.phase !== 'cleared' || (G.w && G.w.garden)) updateOracle(dt);
   window.GEN.loadAround(w, b.x, b.y, 2);
   updateCamera(dt);
   if (R.lure) for (const f of w.flies) if (!f.got) {
@@ -796,6 +801,8 @@ function fixedUpdate(dt) {
     if (b.grounded) { resetAirCharges(); if (!wasGround && preVy > 300) { fx('dust', b.x, b.y + 3, { sc: 0.7 }); } }
     if (!wasGround && b.grounded && preVy > 110) {
       b.land = Math.min(1, preVy / 420);
+      if (preVy > 200) { VX.ring(b.x, b.y + 5, 8 + preVy / 28); VX.sparkBurst(b.x, b.y + 4, 2 + Math.round(preVy / 120), { angle: -Math.PI / 2, spread: 2.8, speed: 70 + preVy / 5, col: '#e3d3ac', life: 0.25, g: 400 }); }
+      if (preVy > 420) VX.kick(0.12, 0, 2);
     }
     b.land = Math.max(0, (b.land || 0) - dt * 5); b.roll = (b.roll || 0) + b.vx * dt / PHYS.R * (b.grounded ? 1 : 0.5);
     for (const e of ev) {
@@ -804,11 +811,12 @@ function fixedUpdate(dt) {
         else { if (e.v > 70) AU.hit(e.kind, e.v); if (e.v > 160) burst(e.x, e.y, 4, { color: ['#8a7a62', '#5a4e40'], speed: 60, life: 0.4 }); }
       } else if (e.t === 'pad') {
         AU.pad(e.combo); e.pad.squish = 1; fx('sparkB', b.x, b.y, { sc: 1 });
+        VX.sparkBurst(b.x, b.y + 4, 10, { angle: -Math.PI / 2, spread: 2.4, speed: 190, col: '#9ff4ff', life: 0.35 }); VX.ring(b.x, b.y + 6, 26, { col: '#9ff4ff', speed: 160 }); VX.kick(0.08, 0, 2);
         if (e.combo > 1) popup('x' + e.combo, b.x, b.y - 10, '#9ff4ff');
       } else if (e.t === 'fly') {
         AU.fly(); G.flies++;
         const heal = Math.min(R.dnaMax - R.dna, R.flyHeal); R.dna += heal;
-        fx('sparkG', e.f.x, e.f.y, { sc: 1 });
+        fx('sparkG', e.f.x, e.f.y, { sc: 1 }); VX.sparkBurst(e.f.x, e.f.y, 10, { col: '#eaff8a', speed: 120, life: 0.4, curve: 5 });
         popup(heal > 0 ? `+${Math.round(heal)} DNA` : 'Firefly!', e.f.x, e.f.y - 10, '#eaff8a');
       } else if (e.t === 'skip') {
         AU.skip(); fx('sparkB', e.x, e.y - 2, { sc: 0.9 }); popup('Skip!', e.x, e.y - 12, '#a4fff5');
@@ -825,6 +833,7 @@ function fixedUpdate(dt) {
     // fell way down into the dark under ur last spot
     if (b.grounded) G.airT = 0; else G.airT += dt;
     if (!b.grounded && b.y > G.lastSafe.y + 560 && G.airT > 1.2) lostInDark();
+    else if (r === 'goal' && G.w.garden) gardenFinale();
     else if (r === 'goal' && !CB.elderActive() && !(G.level === 0 && !G.run.elderDone)) artifactFound();   // level 1: the elder comes first
     else if (r === 'sink') sink();
   } else if (G.phase === 'dead') {
@@ -845,7 +854,7 @@ function fixedUpdate(dt) {
     if (G.phaseT > 1.25 + (G.deadHold || 0)) { G.deadHold = 0; if (R.dna <= 0) openDraft(); else respawn(); }
   } else if (G.phase === 'cleared') {
     const g = w.goal; b.x += (g.x - b.x) * Math.min(1, dt * 4); b.y += (g.y - b.y) * Math.min(1, dt * 4);
-    if (G.phaseT > 4.5) nextLevel();
+    if (G.phaseT > 3.9 && !G.iris && !G.leaving) { G.leaving = true; VX.iris(-1, G.ball.x - G.cam.x, G.ball.y - G.cam.y, G.w.garden ? 1.4 : 0.7, () => { G.leaving = false; if (G.w.garden) finish(); else nextLevel(); }); }
   }
 }
 /* lose dna. it turns into the spore the glowcap grows from */
@@ -854,6 +863,7 @@ function sink() {
   const sy = surfaceY(w, b.x, b.y) || b.y;
   AU.splash();
   fx('bubble', b.x, sy - 22, { rot: -Math.PI / 4, sc: 0.9 });
+  VX.sparkBurst(b.x, sy, 14, { angle: -Math.PI / 2, spread: 1.3, speed: 220, col: '#9fd8ff', g: 520, life: 0.55 }); VX.ring(b.x, sy, 28, { col: '#cfefff', speed: 120 }); VX.kick(0.22, 0, 3);
   let cost = Math.round(25 * R.splashCost);
   if (R.secondWind && !G.secondWindUsed) { G.secondWindUsed = true; cost = 0; popup('Second wind!', b.x, sy - 26, '#ffb0c8'); }
   if (cost > 0) { R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = Math.max(0, R.dna - cost); AU.dnaLoss(); popup(`-${cost} DNA`, G.cam.x + DNA.x + 34, G.cam.y + dnaFillTop(), '#ffb0b0'); }
@@ -895,10 +905,115 @@ function artifactFound() {
   const g = G.w.goal, col = G.w.L.info.artifact[2];
   fx('light', g.x, g.y, { sc: 1 }); fx('sparkG', g.x, g.y, { sc: 1.6 });
   burst(g.x, g.y, 34, { color: [col, '#ffffff', '#fff6c0'], speed: 140, life: 1.2, g: 30 });
+  VX.sparkBurst(g.x, g.y, 42, { col, speed: 280, life: 0.8, curve: 6 }); VX.ring(g.x, g.y, 100, { flat: 1, speed: 240, col }); VX.ring(g.x, g.y, 60, { flat: 1, speed: 140, col: '#ffffff' }); VX.kick(0.35); G.hitstop = 0.14;
   G.ball.vx = G.ball.vy = 0; G.oracle = null;
 }
 function nextLevel() {
-  if (G.level + 1 < LEVELS) startLevel(G.level + 1); else finish();
+  if (G.level + 1 < LEVELS) startLevel(G.level + 1); else startGarden();
+}
+/* the garden of rebirth, the last map */
+const PEDESTALS = [-42, -33, -24, -12, 14, 25, 38];
+function startGarden() {
+  const R = G.run;
+  G.level = LEVELS;
+  G.w = window.GEN.makeGardenWorld(R.mods);
+  const w = G.w, ga = w.L.groundAt;
+  G.ball = makeBall(w.start.x, w.start.y);
+  G.lastSafe = { x: w.start.x, y: w.start.y }; G.safeT = 0; G.airT = 0;
+  G.phase = 'play'; G.phaseT = 0; G.roomT = 0; G.particles = []; G.popups = []; G.fx = []; G.orbs = []; G.trail = [];
+  G.aim = null; G.kbAim.on = false; G.state = 'play'; G.paused = false; G.roomSpores = 0;
+  G.oracle = null; G.oracleNext = 1e9; G.facing = 1; G.askCd = 0;
+  G.cam.x = G.ball.x - VW / 2; G.cam.y = G.ball.y - VH * 0.55;
+  G.prog = 1; CB.reset(); G.deadHold = 0; G.elderPad = null; G.lockCam = false;
+  chunkCache.clear();
+  // a glowcap for every spore u left behind, spread across the valley
+  const n = Math.min(44, Math.max(3, R.spores)), slots = [];
+  for (let x = -60; x <= 62; x++) if (Math.abs(x) > 8 && !(x >= 47 && x <= 62) && !PEDESTALS.some(p => Math.abs(p - x) < 2)) slots.push(x);
+  for (let i = 0; i < n; i++) {
+    const tx = slots[Math.floor((i + 0.5) / n * slots.length)], sy = ga(tx) * TS, ps = 0.75 + hash(i * 7 + 3) * 0.55, x = tx * TS + 8;
+    w.pads.push({ x, sy, cx: x, cy: sy - 2 - 19 * (ps - 1), r: 21 * ps, scale: ps, grow: 0, squish: 0, delay: 0.8 + Math.abs(tx + 58) * 0.035 });
+  }
+  G.garden = { peds: G.artifacts.map(i => ({ i, x: PEDESTALS[i] * TS + 8, y: ga(PEDESTALS[i]) * TS, near: 0 })), elder: { x: 55 * TS + 8, gy: ga(55) * TS }, done: false };
+  window.GEN.loadAround(w, G.ball.x, G.ball.y, 3);
+  resetAirCharges();
+  VX.clear(); G.fade = 0; G.leaving = false; VX.iris(1, VW / 2, VH * 0.55, 1.2);
+  popup('Every spore you left behind took root here.', G.ball.x + 30, G.ball.y - 40, '#d8ffd0');
+}
+function gardenUpdate(dt) {
+  const w = G.w, b = G.ball, g = G.garden;
+  for (const p of w.pads) if (p.grow < 1 && G.roomT > p.delay) {
+    if (p.grow === 0) { AU.grow(); VX.sparkBurst(p.cx, p.sy - 4, 8, { angle: -Math.PI / 2, spread: 1.6, speed: 120, col: '#9ff4ff', life: 0.5 }); VX.ring(p.cx, p.sy - 1, 20, { col: '#9ff4ff' }); }
+    p.grow = Math.min(1, p.grow + dt * 2.2);
+  }
+  for (const p of g.peds) {
+    const near = Math.abs(b.x - p.x) < 26 && Math.abs(b.y - (p.y - 20)) < 50;
+    if (near && !p.near) { const A = window.GEN.ARTIFACTS[window.GEN.STORY_MAP[p.i]]; AU.fly(); VX.sparkBurst(p.x, p.y - 26, 12, { col: A[2], speed: 140, life: 0.5, curve: 6 }); }
+    p.near = near;
+  }
+  if (Math.random() < dt * 1.2) burst(g.elder.x + 6 + Math.random() * 10, g.elder.gy - 60, 1, { color: ['#9db2f5', '#cddcff'], speed: 8, life: 2.4, g: -6 });   // its dreaming in spores
+}
+const FINALE = 'You fell, and every time you fell, something grew. Look how much you grew. Bounce back, little spore. Always.';
+function gardenFinale() {
+  if (G.garden.done) return;
+  G.garden.done = true; G.phase = 'cleared'; G.phaseT = -5.8;      // stay on the moment a bit before the wipe
+  const b = G.ball, g = G.w.goal;
+  b.vx = b.vy = 0; AU.holed(true); AU.oracle();
+  VX.sparkBurst(g.x, g.y - 10, 60, { col: '#fff2cc', speed: 300, life: 1, curve: 6 }); VX.ring(g.x, g.y, 140, { flat: 1, speed: 220, col: '#d8ffd0' }); VX.kick(0.3);
+  for (const p of G.w.pads) p.squish = 1;
+  const hi = FINALE.indexOf('Bounce back');
+  G.oracle = { line: FINALE, hl: [hi, hi + 'Bounce back'.length], t: -0.2, dur: 1.2 + FINALE.length * 0.045 + 3, chars: 0 };
+}
+/* the masked figure standing in the garden. tall hooded robe and the carved mask */
+let figureCanvas = null;
+function buildFigure() {
+  const W = 40, H = 66, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x2 = c.getContext('2d'), cx = 20;
+  const put = (x, y, col) => { x2.fillStyle = col; x2.fillRect(x, y, 1, 1); };
+  const RO = ['#0c0a12', '#14121c', '#1f1c2a', '#2e2a3c', '#433d55'];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const v = y / (H - 1);
+    let hw;
+    if (y < 26) { const u = (y - 13) / 13; hw = 11 * Math.sqrt(Math.max(0, 1 - u * u)) + (y > 14 ? 1.5 : 0); }    // hood
+    else hw = 11 + (y - 26) * 0.21 + Math.sin(y * 0.4) * 0.5;                                                   // robe gets wider at the bottom
+    const dx = (x + 0.5 - cx) / hw; if (Math.abs(dx) > 1) continue;
+    let li = 0.55 - dx * 0.45 - v * 0.15;                                                                       // light from the left
+    if (y >= 26 && Math.abs(((x - cx) + 40) % 7 - 3.5) < 0.6) li -= 0.25;                                       // folds
+    if (y > H - 4) li += 0.2;
+    put(x, y, RO[Math.max(0, Math.min(4, Math.floor(li * 5)))]);
+    if (y > H - 3) put(x, y, (x + y) % 2 ? '#8f97a8' : '#c9a2ff');                                              // bottom edge glows a lil
+  }
+  for (let y = 2; y < 25; y++) for (let x = 0; x < W; x++) {                                                   // the dark inside the hood
+    const u = (x + 0.5 - cx) / 8.5, w = (y - 14) / 11; if (u * u + w * w < 1) put(x, y, '#07060b');
+  }
+  if (!maskPortrait) maskPortrait = buildMaskPortrait();
+  x2.drawImage(maskPortrait, 0, 0, 46, 50, cx - 11, 3, 23, 25);
+  return c;
+}
+function drawFigure(x, y, t) {
+  if (!figureCanvas) figureCanvas = buildFigure();
+  const bob = Math.round(Math.sin(t * 1.6) * 1.2);
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const [r, a] of [[34, 0.05], [24, 0.06], [14, 0.07]]) { ctx.globalAlpha = a; ctx.fillStyle = '#c9a2ff'; VX.disc(ctx, x, y - 36 + bob, r, 1); }
+  ctx.restore();
+  ctx.drawImage(figureCanvas, Math.round(x - 20), y - 66 + bob);
+  for (let k = 0; k < 6; k++) { const a = t * 0.8 + k * 1.05, r = 24; ctx.fillStyle = k % 2 ? '#c9a2ff' : '#fff2cc'; ctx.fillRect(Math.round(x + Math.cos(a) * r), Math.round(y - 34 + Math.sin(a) * r * 0.45 + bob), 1, 1); }
+}
+function drawPedestal(p, t) {
+  const A = window.GEN.ARTIFACTS[window.GEN.STORY_MAP[p.i]], x = p.x, y = p.y;
+  ctx.fillStyle = '#2b2233'; ctx.fillRect(x - 6, y - 12, 12, 12); ctx.fillStyle = '#443543'; ctx.fillRect(x - 7, y - 14, 14, 3); ctx.fillRect(x - 5, y - 12, 2, 12);
+  ctx.fillStyle = '#5e4a5c'; ctx.fillRect(x - 7, y - 14, 14, 1);
+  drawArtifact({ x, y: y - 28 + Math.sin(t * 2 + p.i) * 2 }, t + p.i, { artifact: A }, 0, 1);
+  if (p.near) { text(A[0], x, y - 66, 1, A[2], 'center'); ctx.globalAlpha = 0.85; text(A[1], x, y - 55, 1, '#d8e0ff', 'center'); ctx.globalAlpha = 1; }
+}
+/* golden light coming down through the trees */
+function drawGodRays(t, cx) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 6; k++) {
+    const bx = ((k * 157 - cx * 0.3) % (VW + 200) + VW + 200) % (VW + 200) - 100, w = 26 + (k % 3) * 14, a = 0.05 + 0.03 * Math.sin(t * 0.6 + k);
+    ctx.globalAlpha = a; ctx.fillStyle = k % 2 ? '#ffe6a8' : '#d8ffd0';
+    for (let y = 0; y < VH; y += 2) ctx.fillRect(Math.round(bx + y * 0.45), y, w, 2);
+  }
+  ctx.restore();
 }
 function finish() {
   G.state = 'end'; G.endT = 0; clearSave();
@@ -1266,6 +1381,7 @@ function drawBall(b, t, alpha = 1) {
   const hurt = G.state === 'play' && G.iframes > 0, aiming = G.state === 'play' && (G.aim || G.kbAim.on);
   const eyes = hurt ? 'hurt' : aiming ? 'aim' : (t % 3.3) < 0.12 ? 'blink' : 'open';
   const spr = sporeSprite(rollQ, sqQ, lx, ly, eyes, sp > 330 ? 'o' : '-');
+  if (sp > 300 && alpha === 1 && G.state === 'play' && G.phase === 'play' && (G.time - (b.ghostT || 0)) > 0.025) { b.ghostT = G.time; VX.ghost(spr, 8, 8 + sqQ / 20 * 3, b.x, b.y, 0.4); }
   PK.blit(ctx, spr, 8, 8 + sqQ / 20 * 3, b.x, b.y, false, 1, alpha);
   // every landing puffs warm spores out the pore, otherwise a lazy lil wisp floats up
   const top = b.y - 5.9 * (1 - sq) - 1;
@@ -1525,25 +1641,45 @@ function drawArtifact(g, t, info, k, fade = 1) {
   ctx.globalAlpha = (1) * fade;
 }
 
-/* the elder pulls the world into the dark. a dark layer with soft holes cut around every light */
-const darkCv = document.createElement('canvas'); darkCv.width = VW; darkCv.height = VH;
-const dctx = darkCv.getContext('2d');
-function drawDarkness(cx, cy) {
-  const a = G.dark || 0; if (a < 0.01) return;
-  dctx.globalCompositeOperation = 'source-over'; dctx.globalAlpha = 1; dctx.clearRect(0, 0, VW, VH);
-  dctx.fillStyle = `rgba(6,5,14,${Math.min(0.92, a)})`; dctx.fillRect(0, 0, VW, VH);
-  dctx.globalCompositeOperation = 'destination-out'; dctx.fillStyle = '#000';
-  const L = CB.lights().concat([{ x: G.ball.x, y: G.ball.y, r: 56 }], G.w.pads.map(p => ({ x: p.cx, y: p.cy - 6, r: 40 })));
-  for (const l of L) for (const [k, al] of [[1, 0.3], [0.7, 0.35], [0.42, 0.6]]) { dctx.globalAlpha = al * (l.p || 1); CB.disc(dctx, l.x - cx, l.y - cy, l.r * k); }
-  dctx.globalCompositeOperation = 'source-over'; dctx.globalAlpha = 1;
-  ctx.drawImage(darkCv, 0, 0);
+/* light. every level is a bit deeper in the dark */
+const LEVEL_DARK = [0, 0.06, 0.12, 0.19, 0.26, 0.33, 0.4];
+const LEVEL_DEPTH = [0.08, 0.26, 0.4, 0.52, 0.62, 0.7, 0.78];     // how far the background has sunk into the dark
+function worldLights() {
+  const L = [], w = G.w, b = G.ball;
+  for (const l of CB.lights()) L.push(Object.assign({ col: l.warm ? '#ffd27a' : '#6f8be0' }, l));
+  L.push({ x: b.x, y: b.y - 2, r: 60, col: '#ffd89a', p: 1 });
+  for (const f of w.flies) if (!f.got) L.push({ x: f.x, y: f.y, r: 26, col: '#eaff8a', p: 0.75 });
+  for (const p of w.pads) L.push({ x: p.cx, y: p.cy - 6, r: 46 * (p.scale || 1), col: '#9ff4ff', p: 0.8 });
+  for (const c of w.caps) L.push({ x: c.ox + 35, y: c.oy + 22, r: 62, col: '#6f8be0', p: 0.75 });
+  if (G.level < LEVELS) L.push({ x: w.goal.x, y: w.goal.y, r: 96, col: w.L.info.artifact[2], p: 1 });
+  for (const o of G.oracle ? [G.oracle] : []) if (o.x != null) L.push({ x: o.x, y: o.y, r: 50, col: '#c9a2ff', p: 0.8 });
+  return L;
+}
+function drawWorldLight(cx, cy) {
+  const base = G.level >= LEVELS ? 0 : LEVEL_DARK[Math.min(LEVEL_DARK.length - 1, G.level)] || 0;
+  const amb = Math.max(base, (G.dark || 0) * 0.92);
+  VX.drawLight(cx, cy, worldLights(), amb, G.dark > 0.3 ? [8, 7, 15] : [12, 14, 26]);
+}
+/* glowy spores floating around in the air, like the ones the blue caps drop */
+const SPORES = [];
+function drawSporeDrift(t, dt) {
+  const cam = G.cam, n = 38;
+  while (SPORES.length < n) SPORES.push({ x: cam.x + Math.random() * VW, y: cam.y + Math.random() * VH, vx: 4 + Math.random() * 6, vy: -3 - Math.random() * 5, ph: Math.random() * 9, big: Math.random() < 0.2 });
+  for (const s of SPORES) {
+    s.x += (s.vx + Math.sin(t * 0.7 + s.ph) * 4) * dt; s.y += (s.vy + Math.cos(t * 0.9 + s.ph) * 3) * dt;
+    if (s.x < cam.x - 20 || s.x > cam.x + VW + 20 || s.y < cam.y - 20 || s.y > cam.y + VH + 20) { s.x = cam.x + Math.random() * VW; s.y = cam.y + VH + 10; if (Math.random() < 0.5) { s.x = cam.x - 10; s.y = cam.y + Math.random() * VH; } }
+    const a = 0.35 + 0.35 * Math.sin(t * 2 + s.ph);
+    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * 0.25; ctx.fillStyle = '#6f8be0'; VX.disc(ctx, s.x, s.y, s.big ? 2 : 1);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = a; ctx.fillStyle = s.big ? '#cddcff' : '#9db2f5'; ctx.fillRect(Math.round(s.x), Math.round(s.y), 1, 1);
+  }
+  ctx.globalAlpha = 1;
 }
 function renderPlay(t, dt) {
   const w = G.w, L = w.L, cam = G.cam, cx = Math.round(cam.x), cy = Math.round(cam.y);
   drawWorldBackground(t);
-  if (G.dark > 0.01) { ctx.fillStyle = `rgba(10,9,24,${G.dark * 0.85})`; ctx.fillRect(0, 0, VW, VH); }   // the background goes dark first
-  let sx = 0, sy = 0;
-  if (G.shake > 0) { sx = Math.round((Math.random() - 0.5) * G.shake * 24); sy = Math.round((Math.random() - 0.5) * G.shake * 24); G.shake = Math.max(0, G.shake - dt); }
+  if (G.w.garden) drawGodRays(t, cam.x);
+  { const dpt = Math.max(G.level >= LEVELS ? 0 : LEVEL_DEPTH[Math.min(LEVEL_DEPTH.length - 1, G.level)], (G.dark || 0) * 0.85); if (dpt > 0) { ctx.fillStyle = `rgba(10,9,24,${dpt})`; ctx.fillRect(0, 0, VW, VH); } }
+  const [sx, sy] = VX.cameraOffset(t, dt);
   ctx.save(); ctx.translate(-cx + sx, -cy + sy);
   const vis = [];
   visibleChunks((ccx, ccy, c) => { vis.push([ccx, ccy, c]); });
@@ -1555,7 +1691,8 @@ function renderPlay(t, dt) {
   drawFlora(t, false);
   for (const c of w.caps) if (Math.abs(c.ox - cam.x - VW / 2) < VW) drawCap(c);
   w.flies.forEach((f, i) => { if (Math.abs(f.x - cam.x - VW / 2) < VW && Math.abs(f.y - cam.y - VH / 2) < VH) drawFly(f, t, i); });
-  drawArtifact(w.goal, t, L.info, G.phase === 'cleared' ? Math.min(1, G.phaseT) : 0);
+  if (w.garden) { const g = G.garden; for (const p of g.peds) drawPedestal(p, t); CB.anim(ctx, 'el_sleep', t * 3, g.elder.x, g.elder.gy, -1); drawFigure(w.goal.x, w.goal.y + 26, t); }
+  else drawArtifact(w.goal, t, L.info, G.phase === 'cleared' ? Math.min(1, G.phaseT) : 0);
   for (const p of w.pads) drawPad(p);
   for (let i = 0; i < G.trail.length; i++) { ctx.globalAlpha = i / G.trail.length * 0.5; ctx.fillStyle = '#fff2cc'; ctx.fillRect(Math.round(G.trail[i].x), Math.round(G.trail[i].y), 1, 1); }
   ctx.globalAlpha = 1;
@@ -1570,13 +1707,17 @@ function renderPlay(t, dt) {
     }
   }
   drawFlora(t, true);
+  drawSporeDrift(t, dt);
   for (const [ccx, ccy, c] of vis) ctx.drawImage(c.wat, ccx * CHUNK_PX, ccy * CHUNK_PX);
   if (G.phase === 'play' && (G.aim || G.kbAim.on)) drawAim(t);
   if (G.phase === 'play' && G.mouse && !G.touch && !G.aim) CB.drawReticle(ctx, G.mouse.x + cx, G.mouse.y + cy, t);
   drawFX(dt);
   drawParticles(dt);
+  if (!G.paused) VX.updateSparks(dt);
+  VX.draw(ctx, dt);
   ctx.restore();
-  drawDarkness(cx - sx, cy - sy);
+  drawWorldLight(cx - sx, cy - sy);
+  VX.drawVignette(0.55 + (G.dark || 0) * 0.45);
   if (G.flashA > 0) { ctx.globalAlpha = Math.min(1, G.flashA); ctx.fillStyle = G.flashCol || '#ffffff'; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1; G.flashA -= dt * 2.6; }
   if (G.aim) {
     ctx.strokeStyle = 'rgba(234,255,246,0.35)'; ctx.lineWidth = 1;
@@ -1587,7 +1728,7 @@ function renderPlay(t, dt) {
   // photo mode (for store screenshots, set from code): no hud, logo is optional
   if (G.photo) { if (G.photo === 'cover') { const L = G.photoLogo || {}; drawLogo(t, L.y ?? G.photoY ?? 40, L.sc || 5, L.x ?? VW / 2, L.tag || 2); } if (G.photo === 'oracle') drawOracle(t); return; }
   // hud
-  const lvl = `Level ${G.level + 1}/${LEVELS}  -  ${L.info.name}`;
+  const lvl = G.w.garden ? L.info.name : `Level ${G.level + 1}/${LEVELS}  -  ${L.info.name}`;
   pill(30, 4, textWidth(lvl) + 16); text(lvl, 38, 7, 1, MEM.text);
   const alt = Math.round(-(G.ball.y - w.start.y) / TS);
   const altS = (alt > 0 ? '+' : '') + alt + 'm';
@@ -1604,7 +1745,7 @@ function renderPlay(t, dt) {
   drawDNABar(t);
   drawOracle(t);
   drawTouchButtons();
-  if (!G.oracle && G.phase === 'play' && G.askCd <= 0 && !G.touch && !CB.elderActive()) text('Q: listen', 34, VH - 14, 1, 'rgba(200,190,255,0.55)', 'left', null);
+  if (!G.oracle && G.phase === 'play' && G.askCd <= 0 && !G.touch && !CB.elderActive() && !G.w.garden) text('Q: listen', 34, VH - 14, 1, 'rgba(200,190,255,0.55)', 'left', null);
   if (G.roomT < 8 && G.phase === 'play' && G.level === 0 && !G.touch) {
     ctx.globalAlpha = Math.min(1, (8 - G.roomT) / 1.5);
     const hint = 'A/D roll  -  Space hop  -  drag to fling (again mid-air)  -  click to blast toxin';
@@ -1618,7 +1759,7 @@ function renderPlay(t, dt) {
     text(`Somewhere here lies the ${L.info.artifact[0].replace(/^The /, '')}.`, VW / 2, 176, 1, L.info.artifact[2], 'center');
     ctx.globalAlpha = 1;
   }
-  if (G.phase === 'cleared') {
+  if (G.phase === 'cleared' && !G.w.garden) {
     const k = Math.min(1, G.phaseT * 3), A = L.info.artifact;
     ctx.globalAlpha = k;
     membrane(VW / 2 - 160, 110, 320, 124, 16, { dots: 14, glow: 0.25, edge: A[2] });
@@ -1683,11 +1824,11 @@ function renderEnd(t, dt) {
   for (let x = 0; x < VW; x += TS) { ctx.drawImage(IMG.tp, 4 * TS, 8 * TS, TS, TS, x, wy, TS, TS); for (let y = wy + TS; y < VH; y += TS) ctx.drawImage(IMG.tp, 5 * TS, 8 * TS, TS, TS, x, y, TS, TS); }
   const R = G.run || newRun(), n = R.spores, shown = Math.min(n, Math.floor(G.endT * 8));
   for (let i = 0; i < Math.min(shown, 40); i++) { const x = 24 + ((i * 97) % 600) + hash(i) * 10; drawPad({ cx: x, sy: wy, x, grow: Math.min(1, (G.endT * 8 - i) / 5), squish: 0, scale: 0.8 + hash(i + 3) * 0.5 }); }
-  text('The Garden of Rebirth', VW / 2, 12, 3, '#d8ffd0', 'center');
-  text('Every spore you left behind took root here.', VW / 2, 44, 1, '#9ff4ff', 'center');
+  text('You bounced back.', VW / 2, 12, 3, '#d8ffd0', 'center');
+  text('Every spore you left behind took root in the garden.', VW / 2, 44, 1, '#9ff4ff', 'center');
   // the artifacts u got
   for (let i = 0; i < LEVELS; i++) {
-    const A = window.GEN.ARTIFACTS[i], got = G.artifacts.includes(i), x = VW / 2 - 10 * 26 + i * 26, y = 74;
+    const A = window.GEN.ARTIFACTS[window.GEN.STORY_MAP[i]], got = G.artifacts.includes(i), x = VW / 2 - (LEVELS - 1) * 15 + i * 30, y = 74;
     const k = Math.max(0, Math.min(1, (G.endT - 0.3 - i * 0.08) * 3));
     drawArtifact({ x, y }, t + i, { artifact: got ? A : [A[0], A[1], '#5a6470'] }, 0, k * (got ? 1 : 0.35));   // the ones u missed stay grey
   }
@@ -1738,6 +1879,7 @@ function frame(now) {
   else if (G.state === 'end') renderEnd(T, dt);
   else if (ready()) renderTitle(T);
   else { ctx.fillStyle = '#d6e6f0'; ctx.fillRect(0, 0, VW, VH); text(loadError ? `Missing assets/${loadError}` : 'Loading...', VW / 2, VH / 2, 2, loadError ? '#c0392b' : '#1a1424', 'center', null); }
+  if (G.state === 'play') VX.drawIris(dt); else G.iris = null;
   G.fade = Math.max(0, G.fade - dt * 2.5);
   if (G.fade > 0.01) { ctx.fillStyle = `rgba(8,20,22,${G.fade})`; ctx.fillRect(0, 0, VW, VH); }
   if (G.touch && window.innerHeight > window.innerWidth * 1.1) {          // phones, the game wants landscape

@@ -1,4 +1,4 @@
-// story mode checker: proves all 21 levels can actually be beaten
+// story mode checker: proves all 7 levels can actually be beaten
 globalThis.SB = require('../src/sim.js');
 const GEN = require('../src/gen.js');
 const ANG = 6, POWERS = [0.15, 0.25, 0.35, 0.45, 0.55, 0.7, 0.85, 1.0];
