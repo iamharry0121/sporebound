@@ -1,4 +1,4 @@
-/* sporebound */
+// main game file
 (function () {
 'use strict';
 const { VW, VH, TS, COLS, ROWS, PHYS, SPR, HOLES, makeWorld, makeBall, stepBall, updateSwings, growPad, surfaceY, tileAt } = window.SB;
@@ -17,7 +17,7 @@ for (const k in FILES) {
   IMG[k] = im;
 }
 const ready = () => loaded === Object.keys(FILES).length;
-/* copies of the two front backdrop layers with the top edge faded out */
+// backdrop copies with a faded top
 const faded = {};
 function fadedLayer(k) {
   if (faded[k]) return faded[k];
@@ -65,7 +65,7 @@ const GLYPHS = {
   '>': '01000001000001000001000100010001000', '*': '00000101010111011111011101010100000', '=': '00000000001111100000111110000000000',
   '#': '01010010101111101010111110101001010', '&': '01100100101010001000101011001001101', '^': '00100010101000100000000000000000000',
 };
-/* two pixel fonts, both are meant for 11px */
+// fonts
 const FONT_PX = 11, FONT_PAD = 4;
 const FONTS = { body: { family: 'PixelSans', file: 'PixelSans.ttf', ready: false, dy: 4 }, head: { family: 'ScrollPixel', file: 'ScrollPixel.ttf', ready: false, dy: 4 } };
 const textCache = new Map();
@@ -352,7 +352,7 @@ function drawIcon(c, name, x, y, sc, color) {
   }
 }
 
-/* ui. its all drawn in code to look like cells */
+// ui
 const MEM = { edge: '#6fd6b8', edgeD: '#2f7f74', dark: '#0b1a1c', cyto: 'rgba(12,34,36,0.84)', hi: '#c8fff0', text: '#eafff6', dim: '#8fb8ae' };
 let ctxStack = [];
 function withCtx(c, fn) { ctxStack.push(ctx); ctx = c; try { fn(); } finally { ctx = ctxStack.pop(); } }
@@ -539,7 +539,7 @@ function drawFX(dt) {
   }
 }
 
-/* story mode. 7 generated levels, one artifact in each, then the garden */
+// story mode
 const LEVELS = window.GEN.STORY_LEVELS;
 const RARITY = [
   { name: 'Common', color: '#cfe3dc', mid: '#5f7f78', deep: '#18302f', w: 50 },
@@ -618,7 +618,7 @@ function menuSelect(i) {
   if (it.id === 'continue') continueGame(); else newGame();
 }
 
-/* input. A/D to roll, space to hop, drag back to fling */
+// input
 function toGame(e) { const r = screen.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * VW, y: (e.clientY - r.top) / r.height * VH }; }
 const TBTN = { left: [36, 362, 22], right: [92, 362, 22], hop: [VW - 40, 362, 26], listen: [VW - 40, 312, 13] };
 const touchHeld = { left: null, right: null, hop: null, listen: null };
@@ -928,7 +928,7 @@ function startGarden() {
   chunkCache.clear();
   // a glowcap for every spore u left behind, spread across the valley
   const n = Math.min(44, Math.max(3, R.spores)), slots = [];
-  for (let x = -60; x <= 62; x++) if (Math.abs(x) > 8 && !(x >= 47 && x <= 62) && !PEDESTALS.some(p => Math.abs(p - x) < 2)) slots.push(x);
+  for (let x = -60; x <= 62; x++) if (Math.abs(x) > 8 && Math.abs(x * TS - w.start.x) > 4 * TS && !(x >= 47 && x <= 62) && !PEDESTALS.some(p => Math.abs(p - x) < 2)) slots.push(x);
   for (let i = 0; i < n; i++) {
     const tx = slots[Math.floor((i + 0.5) / n * slots.length)], sy = ga(tx) * TS, ps = 0.75 + hash(i * 7 + 3) * 0.55, x = tx * TS + 8;
     w.pads.push({ x, sy, cx: x, cy: sy - 2 - 19 * (ps - 1), r: 21 * ps, scale: ps, grow: 0, squish: 0, delay: 0.8 + Math.abs(tx + 58) * 0.035 });
@@ -937,7 +937,7 @@ function startGarden() {
   window.GEN.loadAround(w, G.ball.x, G.ball.y, 3);
   resetAirCharges();
   VX.clear(); G.fade = 0; G.leaving = false; VX.iris(1, VW / 2, VH * 0.55, 1.2);
-  popup('Every spore you left behind took root here.', G.ball.x + 30, G.ball.y - 40, '#d8ffd0');
+  popup('Every spore you left behind took root here.', G.ball.x + 30, G.ball.y - 24, '#d8ffd0');
 }
 function gardenUpdate(dt) {
   const w = G.w, b = G.ball, g = G.garden;
@@ -1099,8 +1099,7 @@ function drawOrbs(dt) {
   }
 }
 
-/* the hooded one. shows up randomly in the bottom left */
-/* the hooded one: an old carved stone mask in a dark hood */
+// the hooded one
 function buildMaskPortrait() {
   const W = 46, H = 50, c = document.createElement('canvas'); c.width = W; c.height = H;
   const x2 = c.getContext('2d'), img = x2.createImageData(W, H), d = img.data;
@@ -1332,7 +1331,7 @@ function drawFly(f, t, i) {
   ctx.fillStyle = '#fbffd0'; ctx.fillRect(x - 1, y - 1, 2, 2);
   ctx.fillStyle = '#c8e0ff'; if ((t * 12 | 0) % 2) { ctx.fillRect(x - 3, y - 2, 2, 1); ctx.fillRect(x + 1, y - 2, 2, 1); }
 }
-/* puff, the spore u play as. a lil puffball mushroom, drawn here pixel by pixel */
+// puff
 const PUFF = ['#8c7452', '#bba47a', '#e3d3ac', '#f6ecd2'], PUFF_OUT = '#1c1420';
 const PUFF_L = (() => { const v = [-0.55, -0.68, 0.48], n = Math.hypot(...v); return v.map(x => x / n); })();
 const phash = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
@@ -1607,7 +1606,7 @@ function drawWorldBackground(t) {
     if (span - sx < VW) ctx.drawImage(img, 0, 0, VW - (span - sx), VH, span - sx, dy, VW - (span - sx), VH);
   };
   const alt = -(cam.y + VH / 2 - G.w.start.y) / TS;
-  /* the painted background is far away so it drifts with ur height */
+  // backdrop parallax
   const haze = a => { ctx.fillStyle = `rgba(214,230,240,${a})`; ctx.fillRect(0, 0, VW, VH); };
   const d2 = Math.round(Math.max(36, Math.min(VH, 36 + alt * 3))), d1 = Math.round(Math.max(64, Math.min(VH, 64 + alt * 6)));   // its painted ground always stays under the screen
   wrapDraw(b3, 0.05, t * 2 + bgi * 300);
@@ -1641,7 +1640,7 @@ function drawArtifact(g, t, info, k, fade = 1) {
   ctx.globalAlpha = (1) * fade;
 }
 
-/* light. every level is a bit deeper in the dark */
+// lighting
 const LEVEL_DARK = [0, 0.06, 0.12, 0.19, 0.26, 0.33, 0.4];
 const LEVEL_DEPTH = [0.08, 0.26, 0.4, 0.52, 0.62, 0.7, 0.78];     // how far the background has sunk into the dark
 function worldLights() {

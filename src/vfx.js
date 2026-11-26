@@ -1,4 +1,4 @@
-/* sporebound: the visual effects */
+// visual effects
 (function () {
 'use strict';
 window.makeVFX = function (V) {

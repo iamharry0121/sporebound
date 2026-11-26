@@ -1,4 +1,4 @@
-/* sporebound: the physics + level data */
+// physics + level data
 (function (root) {
 'use strict';
 const VW = 640, VH = 400, TS = 16, COLS = 40, ROWS = 25;
@@ -22,7 +22,7 @@ const SPR = {
 const CAP_POLY = [[0, 30], [28, 0], [36, 0], [68, 14], [62, 22], [12, 36]];
 const CAP_STEM = [[35, 34], [35, 56]];
 
-/* the course. 9 holes, each is a 40x25 grid of 16px tiles */
+// course
 function build(fn) {
   const g = [...Array(ROWS)].map(() => Array(COLS).fill('.'));
   const api = {
@@ -245,7 +245,7 @@ function stepBall(w, b, dt, ev) {
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
     const c = tileAt(w, tx, ty);
     if (c === '#') {
-      /* two strips, each one only stretched one way */
+      // edge strips
       const x0 = tx * TS, y0 = ty * TS, x1 = x0 + TS, y1 = y0 + TS, e = Math.min(0.88, P.E_GROUND + m.soilE);
       collideRect(b, isSolid(w, tx - 1, ty) ? x0 - TS : x0, y0, isSolid(w, tx + 1, ty) ? x1 + TS : x1, y1, e, ev, 'soil');
       collideRect(b, x0, isSolid(w, tx, ty - 1) ? y0 - TS : y0, x1, isSolid(w, tx, ty + 1) ? y1 + TS : y1, e, ev, 'soil');

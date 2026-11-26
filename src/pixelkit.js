@@ -1,4 +1,4 @@
-/* sporebound pixel kit: builds small shaded pixel sprites out of shapes, in code */
+// pixel kit
 (function () {
 'use strict';
 const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];

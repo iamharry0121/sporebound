@@ -1,4 +1,4 @@
-/* sporebound level gen (no drawing in here, the tools use it too) */
+// level gen
 (function (root) {
 'use strict';
 const SB = root.SB;
@@ -74,9 +74,9 @@ function makeLevel(n, seedOverride) {
     segs.push({ x0, y0, x1, y1, minx: Math.min(x0, x1) - 4, maxx: Math.max(x0, x1) + 4, miny: Math.min(y0, y1) - 4, maxy: Math.max(y0, y1) + 4 });
   }
   const R_PATH = 2.6;
-  /* floating islands */
-  const ICW = 27, ICH = 16;
-  const density = 0.86 - prog * 0.1;
+  // floating islands
+  const ICW = 19, ICH = 12;           // tighter grid so islands are a short hop apart, like a room someone built by hand
+  const density = 0.95 - prog * 0.06;
   const islandCache = new Map();
   function islandIn(gx, gy) {
     const k = gx + ',' + gy; if (islandCache.has(k)) return islandCache.get(k);
@@ -84,8 +84,8 @@ function makeLevel(n, seedOverride) {
     let isl = null;
     if (h(0) < density) {
       const big = h(5) < 0.22;
-      isl = { cx: gx * ICW + 5 + h(1) * (ICW - 10), cy: gy * ICH + 4 + h(2) * (ICH - 8),
-        a: big ? 15 + h(3) * 7 : 8 + h(3) * 7, b: big ? 8 + h(4) * 4 : 4.5 + h(4) * 3.5,
+      isl = { cx: gx * ICW + 4 + h(1) * (ICW - 8), cy: gy * ICH + 3 + h(2) * (ICH - 6),
+        a: big ? 11 + h(3) * 5 : 5 + h(3) * 5, b: big ? 6 + h(4) * 3 : 3.5 + h(4) * 2.5,
         p: 1.6 + h(7) * 1.2, amp: 1.4, basin: h(6) < 0.3, id: gx * 31 + gy * 17 };
       // keep open sky above the spawn and the artifact, both sit on their own island
       const hits = (x0, x1, y0, y1) => isl.cx + isl.a > x0 && isl.cx - isl.a < x1 && isl.cy + isl.b + 1.5 > y0 && isl.cy - 3 < y1;
@@ -109,7 +109,7 @@ function makeLevel(n, seedOverride) {
     }
     return false;
   };
-  /* extra islands the level adds itself */
+  // extra islands for footing
   const extras = new Map();
   const addIsland = (cx, top, a, b) => {
     const I = { cx, cy: top + 1, a, b, p: 2.2, amp: 0.6, basin: false, id: 900 + extras.size * 7 };
@@ -154,20 +154,33 @@ function makeLevel(n, seedOverride) {
   for (const s of segs) {
     const dx = s.x1 - s.x0, dy = s.y1 - s.y0, len = Math.hypot(dx, dy);
     const steep = Math.abs(dy) > Math.abs(dx) * 0.7;
-    const every = steep ? 5 : 9;
+    const every = steep ? 4 : 6;
     for (let t = 3; t < len; t += every) {
       const x = Math.round(s.x0 + dx * t / len), y = Math.round(s.y0 + dy * t / len);
       if (Math.hypot(x, y) < 8 || Math.hypot(x - ax, y - ay) < 8) continue;
       const side = Math.floor(t / every) % 2 ? 1 : -1, plank = hash2(x, y, seed + 5) < 0.1;
       if (steep) {
-        if (landNear(x + side * 5, y + 2, 3)) continue;
+        if (landNear(x + side * 5, y + 2, 2)) continue;
         if (plank) for (let k = 0; k < 3; k++) branches.add(key(x + side * k, y + 2));
         else addIsland(x + side * 6.5, y + 2, 5.5 + hash2(x, y, seed + 6) * 2.5, 3.5 + hash2(x, y, seed + 7) * 1.5);
       } else {
-        if (landNear(x, y + 3, 3)) continue;
+        if (landNear(x, y + 3, 2)) continue;
         if (plank) for (let k = -1; k <= 1; k++) branches.add(key(x + k, y + 3));
         else addIsland(x, y + 3, 6 + hash2(x, y, seed + 6) * 3, 3.5 + hash2(x, y, seed + 7) * 2);
       }
+    }
+  }
+  // stepping stones
+  {
+    const bx0 = Math.min(...pts.map(p => p[0])) - 14, bx1 = Math.max(...pts.map(p => p[0])) + 14;
+    const by0 = Math.min(...pts.map(p => p[1])) - 12, by1 = Math.max(...pts.map(p => p[1])) + 12;
+    const landAny = (x, y, r) => { for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) if (rawSolid(x + i, y + j)) return true; return false; };
+    for (let gy = by0; gy <= by1; gy += 5) for (let gx = bx0; gx <= bx1; gx += 7) {
+      const x = gx + Math.round((hash2(gx, gy, seed + 31) - 0.5) * 4), y = gy + Math.round((hash2(gx, gy, seed + 32) - 0.5) * 3);
+      const pd = pathDist(x, y);
+      if (pd < 3.6 || pd > 13 || Math.hypot(x, y) < 9 || Math.hypot(x - ax, y - ay) < 9) continue;
+      if (landAny(x, y, 4)) continue;
+      addIsland(x, y, 3.5 + hash2(x, y, seed + 33) * 2.5, 2.4 + hash2(x, y, seed + 34) * 1.4);
     }
   }
   // spawn ledge and the artifact nook
@@ -188,7 +201,7 @@ function makeLevel(n, seedOverride) {
     }
     return false;
   }
-  /* the ground after the path gets carved */
+  // clean up small floating bits
   const s1Memo = new Map(), s2Memo = new Map();
   const memo = (M, k, f) => { let v = M.get(k); if (v === undefined) { v = f(); if (M.size > 300000) M.clear(); M.set(k, v); } return v; };
   const stage1 = (x, y) => memo(s1Memo, x * 4194304 + y, () => {
@@ -240,7 +253,7 @@ function makeLevel(n, seedOverride) {
   }
 
   const chunks = new Map();
-  /* rivals that guard the way */
+  // guards along the route
   const ambush = new Map();
   {
     const want = 1 + Math.round(prog * 6), pts2 = [];
@@ -264,7 +277,7 @@ function makeLevel(n, seedOverride) {
       ambush.set(found[0] + ',' + found[1], type);
     }
   }
-  /* placing the scenery */
+  // scenery placement
   const DECO_FOOT = { rockS: [0, 27], rockM: [2, 52], rockMoss: [0, 63], rockBig: [0, 99], tree: [38, 68], pillarA: [0, 27], pillarB: [0, 25] };
   const DECO_KINDS = ['rockS', 'rockM', 'rockMoss', 'tree', 'pillarA', 'pillarB', 'rockBig', 'rockS', 'rockMoss'];
   const DCELL = 8, SINK = 3;
@@ -335,7 +348,7 @@ function makeLevel(n, seedOverride) {
       if (cap) c.caps.push({ tx: cap.tx, ty: cap.ty });
       const d = decoAt(Math.floor(x / DCELL), y);
       if (d && d.x === x) c.deco.push([d.kind, d.l, d.t]);          // props keep their exact pixel position
-      /* rivals: shroomlings walk on flat ground, driftcaps float over solid tops */
+      // rival spawns
       let underCap = false; for (let qy = y - 1; qy <= y + 1 && !underCap; qy++) for (let qx = x - 4; qx <= x + 3; qx++) if (capAt(qx, qy)) { underCap = true; break; }
       const he = hash2(x, y, seed + 404), far = Math.hypot(x, y) > 22 && Math.hypot(x - ax, y - ay) > 7 && !underCap;
       const guard = underCap ? null : ambush.get(x + ',' + y);
@@ -364,7 +377,7 @@ function makeLevel(n, seedOverride) {
 }
 
 
-/* the garden of rebirth, a handmade map (not generated) */
+// garden of rebirth
 const GARDEN_TERRACES = [[-64, -44, 0], [-44, -30, -1], [-30, -16, 0], [-16, -6, -2], [-6, 7, -3], [7, 16, -2], [16, 30, -1], [30, 46, 0], [46, 64, -2]];
 const GARDEN_ISLETS = [[-37, -8, 5, 2], [-22, -12, 4, 2], [-8, -15, 4, 2], [22, -11, 5, 2], [38, -14, 4, 2], [52, -10, 4, 2]];
 function makeGarden() {

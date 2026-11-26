@@ -1,4 +1,4 @@
-/* sporebound: the rivals, the elder and the toxin blast */
+// rivals, the elder and toxin
 (function () {
 'use strict';
 window.makeCombat = function (A) {
