@@ -584,7 +584,7 @@ function startLevel(n) {
   G.aim = null; G.kbAim.on = false; G.state = 'play'; G.fade = 1; G.paused = false; G.secondWindUsed = false; G.roomSpores = 0;
   G.oracle = null; G.oracleNext = 3.2; G.facing = Math.sign(G.w.goal.x - G.w.start.x) || 1; G.askCd = 0;
   G.cam.x = G.ball.x - VW / 2; G.cam.y = G.ball.y - VH * 0.55;
-  G.prog = n / (LEVELS - 1); CB.reset(); G.lockCam = false;
+  G.prog = n / (LEVELS - 1); CB.reset(); G.deadHold = 0; G.elderPad = null; G.lockCam = false;
   chunkCache.clear();
   window.GEN.loadAround(G.w, G.ball.x, G.ball.y, 2);
   resetAirCharges();
@@ -637,7 +637,7 @@ screen.addEventListener('pointerdown', e => {
   if (G.touch) for (const k in TBTN) {
     const [bx, by, br] = TBTN[k];
     if ((p.x - bx) ** 2 + (p.y - by) ** 2 < (br + 6) ** 2) {
-      if (k === 'listen') { if (!G.oracle && G.askCd <= 0) { summonOracle(); G.askCd = 6; } return; }
+      if (k === 'listen') { if (!G.oracle && G.askCd <= 0 && !CB.elderActive()) { summonOracle(); G.askCd = 6; } return; }
       touchHeld[k] = e.pointerId; if (k === 'hop') G.hopQueued = true; return;
     }
   }
@@ -700,7 +700,7 @@ window.addEventListener('keydown', e => {
   if ((e.code === 'Escape' && !G.kbAim.on) || e.code === 'KeyP') { G.paused = !G.paused; AU.tick(); return; }
   if (G.paused) { if (go) G.paused = false; return; }
   if (G.phase !== 'play') return;
-  if (e.code === 'KeyQ' && !G.oracle && G.askCd <= 0) { summonOracle(); G.askCd = 6; return; }
+  if (e.code === 'KeyQ' && !G.oracle && G.askCd <= 0 && !CB.elderActive()) { summonOracle(); G.askCd = 6; return; }
   if (G.kbAim.on) {
     if (go) { if (canSling()) { const a = G.kbAim.a * Math.PI / 180, v = G.kbAim.p * vmax(); fling(Math.cos(a) * v, -Math.sin(a) * v, G.kbAim.p); } G.kbAim.on = false; }
     if (e.code === 'KeyF' || e.code === 'Escape' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') G.kbAim.on = false;
@@ -821,7 +821,7 @@ function fixedUpdate(dt) {
     // fell way down into the dark under ur last spot
     if (b.grounded) G.airT = 0; else G.airT += dt;
     if (!b.grounded && b.y > G.lastSafe.y + 560 && G.airT > 1.2) lostInDark();
-    else if (r === 'goal') artifactFound();
+    else if (r === 'goal' && !CB.elderActive() && !(G.level === 0 && !G.run.elderDone)) artifactFound();   // level 1: the elder comes first
     else if (r === 'sink') sink();
   } else if (G.phase === 'dead') {
     if (!G.padGrown && G.phaseT > 0.45) {
@@ -829,8 +829,16 @@ function fixedUpdate(dt) {
       const pad = growPad(w, G.sinkX, G.sinkY);
       if (pad) { AU.grow(); fx('sparkG', pad.cx, pad.sy - 16 * (pad.scale || 1), { sc: 1.4 }); popup('A glowcap grew!', pad.cx, pad.sy - 40, '#9ff4ff'); }
     }
-    CB.fxTick(dt);
-    if (G.phaseT > 1.25) { if (R.dna <= 0) openDraft(); else respawn(); }
+    CB.updateElder(dt); CB.fxTick(dt);
+    if (G.elderPad && G.phaseT > 1.6) {                     // where u fell a glowcap grows
+      const p = G.elderPad; G.elderPad = null;
+      const sy = (() => { for (let k = 0; k < 30; k++) { const y = p.y + k * 4; if (tileAt(w, Math.floor(p.x / TS), Math.floor(y / TS)) === '#') return Math.floor(y / TS) * TS; } return null; })();
+      if (sy != null) {
+        const ps = w.mods.padSize, pad = { x: p.x, sy, cx: p.x, cy: sy - 2 - 19 * (ps - 1), r: 21 * ps, scale: ps, grow: 0, squish: 0 };
+        w.pads.push(pad); AU.grow(); fx('sparkG', pad.cx, sy - 16, { sc: 1.4 }); popup('Your spore took root.', pad.cx, sy - 40, '#9ff4ff');
+      }
+    }
+    if (G.phaseT > 1.25 + (G.deadHold || 0)) { G.deadHold = 0; if (R.dna <= 0) openDraft(); else respawn(); }
   } else if (G.phase === 'cleared') {
     const g = w.goal; b.x += (g.x - b.x) * Math.min(1, dt * 4); b.y += (g.y - b.y) * Math.min(1, dt * 4);
     if (G.phaseT > 4.5) nextLevel();
@@ -1472,9 +1480,23 @@ function drawArtifact(g, t, info, k, fade = 1) {
   ctx.globalAlpha = (1) * fade;
 }
 
+/* the elder pulls the world into the dark. a dark layer with soft holes cut around every light */
+const darkCv = document.createElement('canvas'); darkCv.width = VW; darkCv.height = VH;
+const dctx = darkCv.getContext('2d');
+function drawDarkness(cx, cy) {
+  const a = G.dark || 0; if (a < 0.01) return;
+  dctx.globalCompositeOperation = 'source-over'; dctx.globalAlpha = 1; dctx.clearRect(0, 0, VW, VH);
+  dctx.fillStyle = `rgba(6,5,14,${Math.min(0.92, a)})`; dctx.fillRect(0, 0, VW, VH);
+  dctx.globalCompositeOperation = 'destination-out'; dctx.fillStyle = '#000';
+  const L = CB.lights().concat([{ x: G.ball.x, y: G.ball.y, r: 56 }], G.w.pads.map(p => ({ x: p.cx, y: p.cy - 6, r: 40 })));
+  for (const l of L) for (const [k, al] of [[1, 0.3], [0.7, 0.35], [0.42, 0.6]]) { dctx.globalAlpha = al * (l.p || 1); CB.disc(dctx, l.x - cx, l.y - cy, l.r * k); }
+  dctx.globalCompositeOperation = 'source-over'; dctx.globalAlpha = 1;
+  ctx.drawImage(darkCv, 0, 0);
+}
 function renderPlay(t, dt) {
   const w = G.w, L = w.L, cam = G.cam, cx = Math.round(cam.x), cy = Math.round(cam.y);
   drawWorldBackground(t);
+  if (G.dark > 0.01) { ctx.fillStyle = `rgba(10,9,24,${G.dark * 0.85})`; ctx.fillRect(0, 0, VW, VH); }   // the background goes dark first
   let sx = 0, sy = 0;
   if (G.shake > 0) { sx = Math.round((Math.random() - 0.5) * G.shake * 24); sy = Math.round((Math.random() - 0.5) * G.shake * 24); G.shake = Math.max(0, G.shake - dt); }
   ctx.save(); ctx.translate(-cx + sx, -cy + sy);
@@ -1509,6 +1531,7 @@ function renderPlay(t, dt) {
   drawFX(dt);
   drawParticles(dt);
   ctx.restore();
+  drawDarkness(cx - sx, cy - sy);
   if (G.flashA > 0) { ctx.globalAlpha = Math.min(1, G.flashA); ctx.fillStyle = G.flashCol || '#ffffff'; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1; G.flashA -= dt * 2.6; }
   if (G.aim) {
     ctx.strokeStyle = 'rgba(234,255,246,0.35)'; ctx.lineWidth = 1;
@@ -1536,7 +1559,7 @@ function renderPlay(t, dt) {
   drawDNABar(t);
   drawOracle(t);
   drawTouchButtons();
-  if (!G.oracle && G.phase === 'play' && G.askCd <= 0 && !G.touch) text('Q: listen', 34, VH - 14, 1, 'rgba(200,190,255,0.55)', 'left', null);
+  if (!G.oracle && G.phase === 'play' && G.askCd <= 0 && !G.touch && !CB.elderActive()) text('Q: listen', 34, VH - 14, 1, 'rgba(200,190,255,0.55)', 'left', null);
   if (G.roomT < 8 && G.phase === 'play' && G.level === 0 && !G.touch) {
     ctx.globalAlpha = Math.min(1, (8 - G.roomT) / 1.5);
     const hint = 'A/D roll  -  Space hop  -  drag to fling (again mid-air)  -  click to blast toxin';

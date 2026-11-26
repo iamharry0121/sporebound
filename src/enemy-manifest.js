@@ -19,4 +19,13 @@ window.ENEMY_MANIFEST = {
   wm_burrow: ['burrowcap/burrow.png', 50, 40, 6, 19, 34, 0],
   wm_hit: ['burrowcap/hit.png', 50, 40, 2, 19, 34, 0],
   wm_die: ['burrowcap/die.png', 50, 40, 6, 19, 34, 0],
+  el_rise: ['elder/rise.png', 96, 80, 8, 48, 76, 0],
+  el_idle: ['elder/idle.png', 96, 80, 10, 48, 76, 0],
+  el_roar: ['elder/roar.png', 96, 80, 8, 48, 76, 0],
+  el_volley: ['elder/volley.png', 96, 80, 6, 48, 76, 0],
+  el_slam: ['elder/slam.png', 96, 80, 8, 48, 76, 0],
+  el_engulf: ['elder/engulf.png', 96, 80, 6, 48, 76, 0],
+  el_hit: ['elder/hit.png', 96, 80, 2, 48, 76, 0],
+  el_sleep: ['elder/sleep.png', 96, 80, 12, 48, 76, 0],
+  el_sink: ['elder/sink.png', 96, 80, 6, 48, 76, 0],
 };

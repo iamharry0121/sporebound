@@ -1,4 +1,4 @@
-/* sporebound: the rivals and the toxin blast */
+/* sporebound: the rivals, the elder and the toxin blast */
 (function () {
 'use strict';
 window.makeCombat = function (A) {
@@ -23,7 +23,11 @@ window.makeCombat = function (A) {
     leap() { const t = this.now(); this.tone(140, t, 0.16, { type: 'triangle', gain: 0.04, glide: 300 }); },
     burrow() { const t = this.now(); this.noise(t, 0.3, { gain: 0.12, freq: 260, sweep: 900 }); this.tone(90, t, 0.25, { type: 'triangle', gain: 0.08, glide: 180 }); },
     snap() { const t = this.now(); this.noise(t, 0.06, { gain: 0.12, freq: 2200, type: 'bandpass', q: 3 }); this.tone(620, t, 0.08, { type: 'square', gain: 0.03, glide: 300 }); },
+    rumble() { const t = this.now(); this.noise(t, 1.4, { gain: 0.14, freq: 160, sweep: 70 }); this.tone(55, t, 1.4, { type: 'triangle', gain: 0.12, glide: 38, attack: 0.3 }); },
+    roar() { const t = this.now(); this.tone(70, t, 1.1, { type: 'sawtooth', gain: 0.08, glide: 44, attack: 0.05 }); this.tone(104, t, 1.0, { type: 'triangle', gain: 0.08, glide: 66 }); this.tone(157, t + 0.05, 0.9, { type: 'sawtooth', gain: 0.03, glide: 90 }); this.noise(t, 1.0, { gain: 0.14, freq: 300, sweep: 110 }); },
     volley() { const t = this.now(); this.noise(t, 0.2, { gain: 0.08, freq: 1500, sweep: 400, type: 'bandpass', q: 2 }); this.tone(240, t, 0.2, { type: 'triangle', gain: 0.06, glide: 600 }); },
+    slam() { const t = this.now(); this.noise(t, 0.5, { gain: 0.2, freq: 220, sweep: 60 }); this.tone(48, t, 0.5, { type: 'triangle', gain: 0.16, glide: 30 }); },
+    engulf() { const t = this.now(); this.noise(t, 0.6, { gain: 0.16, freq: 500, sweep: 80 }); this.tone(220, t, 0.7, { type: 'triangle', gain: 0.08, glide: 55 }); },
   });
 
   /* juice: shockwave rings, flashes, freeze frames */
@@ -85,11 +89,11 @@ window.makeCombat = function (A) {
 
   /* state */
   const S = { corpses: [], stats: { leaps: 0, drowned: 0, fell: 0, volleys: 0, ducks: 0, dodges: 0, hits: 0, ambushes: 0, strikes: 0, spits: 0, drops: 0 },
-    enemies: [], shots: [], toxins: [], clouds: [], splats: [], motes: [], killed: new Set(), seen: new Set(), cd: 0, kills: 0 };
+    enemies: [], shots: [], toxins: [], clouds: [], splats: [], waves: [], motes: [], killed: new Set(), seen: new Set(), cd: 0, kills: 0 };
   function reset() {
-    S.corpses = []; S.enemies = []; S.shots = []; S.toxins = []; S.clouds = []; S.splats = []; S.motes = [];
+    S.elder = null; S.corpses = []; S.enemies = []; S.shots = []; S.toxins = []; S.clouds = []; S.splats = []; S.waves = []; S.motes = [];
     S.killed = new Set(); S.seen = new Set(); S.cd = 0; rings.length = 0;
-    G.iframes = 0; G.shake = 0; G.flashA = 0; G.hitstop = 0;
+    G.iframes = 0; G.shake = 0; G.dark = 0; G.darkT = 0; G.flashA = 0; G.hitstop = 0;
   }
   function spawnFromQueue() {
     const q = W().spawnQ; if (!q || !q.length) return;
@@ -120,7 +124,7 @@ window.makeCombat = function (A) {
     if (G.phase !== 'play' || G.iframes > 0) return false;
     const R = G.run, b = G.ball;
     R.dnaLag = Math.max(R.dnaLag, R.dnaShown);
-    R.dna = Math.max(0, R.dna - dmg);
+    R.dna = elderActive() ? Math.max(Math.min(R.dna, 15), R.dna - dmg) : Math.max(0, R.dna - dmg);   // the elder wants u in one piece
     G.iframes = 1.0; shake(0.24); hitstop(0.06); flash(0.18, '#ffd0d0');
     const d = Math.sign(b.x - fx0) || 1;
     b.vx = d * 170; b.vy = Math.min(b.vy, -190); b.coyote = 0;
@@ -398,10 +402,139 @@ window.makeCombat = function (A) {
     if (e.state === 'burrow' && e.st > WORM_T.burrow) { e.state = 'lurk'; e.st = 0; e.cd = 0.9 + rnd() * 0.6; e.away = 0; }
   }
 
+  /* the elder. first meeting on level 1, u cant win it */
+  const ELDER_LINE = "Just because you fell once doesn't mean you can't get back up again. Bounce back, little spore.";
+  const EL_T = { rise: 1.5, roar: 1.3, volley: 0.95, slam: 1.15, engulf: 0.8, sink: 1.2 };
+  function groundBelow(x, y) { for (let k = 0; k < 40; k++) { const yy = y + k * 4; if (solidAt(x, yy)) return Math.floor(yy / TS) * TS; } return null; }
+  function spawnElder(offsets, under) {
+    const b = G.ball, dir = Math.abs(b.vx) > 20 ? Math.sign(b.vx) : (Math.sign(W().goal.x - b.x) || 1);
+    // it comes up in ur way
+    for (const off of offsets || [130, 112, 148, 96, 160, 80, 64, -80, -100]) {
+      const x = b.x + dir * off, gy = groundBelow(x, b.y - 40);
+      if (gy != null && Math.abs(gy - (b.y + PHYS_R)) < 100 && !solidAt(x, gy - 60) && !solidAt(x - 20, gy - 30) && !solidAt(x + 20, gy - 30)) {
+        const prev = S.elder;
+        S.elder = { type: 'elder', x, gy, state: 'rise', t: 0, flash: 0, face: -dir || -1, cycle: prev ? prev.cycle : 0, step: prev ? prev.step : 0, shrug: prev ? prev.shrug : 0, under: !!under, far: 0 };
+        AU.rumble(); shake(0.5); G.oracle = null; G.oracleNext = 1e9; G.darkT = 1;          // the hooded guy goes quiet and the dark closes in
+        return true;
+      }
+    }
+    return false;
+  }
+  const PATTERN = ['volley', 'slam', 'fan', 'engulf'];
+  function elderGo(e, s) { e.state = s; e.t = 0; e.did = 0; }
+  function updateElder(dt) {
+    const e = S.elder; if (!e) return;
+    const b = G.ball;
+    e.t += dt; e.flash -= dt;
+    e.face = Math.sign(b.x - e.x) || e.face;
+    const mawX = e.x + e.face * 4, mawY = e.gy - 28;
+    if (e.state === 'rise') {
+      if (e.under) { e.x += (b.x - e.x) * Math.min(1, dt * 5); const g2 = groundBelow(e.x, b.y - 30); if (g2 != null) e.gy = g2; }   // it follows u under the soil
+      if (rnd() < dt * 24) burst(e.x + (rnd() - 0.5) * 70, e.gy - 1, 1, { color: ['#75352f', '#46262b', GLOW], speed: 90, life: 0.6, g: 300 });
+      if (rnd() < dt * 6)
+      shake(0.12);
+      if (e.t > EL_T.rise) {
+        if (e.under) { elderGo(e, 'engulf'); return; }
+        elderGo(e, 'roar');
+      }
+      return;
+    }
+    if (e.state === 'roar') {
+      if (e.t > 0.3 && !e.did) {
+        e.did = 1; AU.roar(); shake(0.7); flash(0.45); hitstop(0.12);
+        ring(mawX, mawY, 170, { speed: 300 }); ring(mawX, mawY, 120, { speed: 200, col: GLOW });
+        for (let i = 0; i < 18; i++) { const a = i / 18 * Math.PI * 2; burst(mawX + Math.cos(a) * 16, mawY + Math.sin(a) * 10, 1, { color: [GLOW2, EYE], speed: 160, life: 0.6, g: 0, angle: a, spread: 0.2 }); }
+      }
+      if (e.t > EL_T.roar) elderGo(e, PATTERN[e.step % PATTERN.length]);
+      return;
+    }
+    if (e.state === 'sated') {                                 // it got what it wanted, back into the ground
+      G.darkT = 0;
+      if (e.t > EL_T.sink) S.elder = null;
+      return;
+    }
+    // it creeps toward u between attacks. if u get too far it sinks and pops up right next to u again
+    const dx = b.x - e.x, ad = Math.abs(dx);
+    if (ad > 250 || Math.abs(b.y - e.gy) > 160) e.far += dt; else e.far = 0;
+    if (e.far > 2.2 && G.phase === 'play') { const c = e.cycle, s = e.step; S.elder = null; if (spawnElder([110, 90, 130, 70, -90])) { S.elder.cycle = c; S.elder.step = s; G.darkT = 1; } return; }
+    if (e.state !== 'engulf') {
+      const ahead = e.x + Math.sign(dx) * 26, gy2 = groundBelow(ahead, e.gy - 20);
+      if (ad > 46 && gy2 != null && Math.abs(gy2 - e.gy) < 20 && !solidAt(ahead, e.gy - 30)) { e.x += Math.sign(dx) * 18 * dt; e.gy = gy2; }
+    }
+    const next = () => { e.step++; if (e.step % PATTERN.length === 0) e.cycle++; elderGo(e, PATTERN[e.step % PATTERN.length]); };
+    if (e.state === 'volley' || e.state === 'fan') {
+      if (e.t > 0.32 && !e.did) {
+        e.did = 1; AU.volley(); shake(0.18);
+        if (e.state === 'volley') {                           // full ring of glowing spores with a gap to slip through
+          const n = 14, gap = Math.atan2(b.y - mawY, b.x - mawX) + (rnd() < 0.5 ? 0.9 : -0.9);
+          for (let k = 0; k < n; k++) { const a = gap + (k + 0.5) / n * Math.PI * 2; if (Math.abs(((a - gap + Math.PI) % (Math.PI * 2)) - Math.PI) < 0.45) continue;
+            spore(mawX, mawY, Math.cos(a) * 82, Math.sin(a) * 82, { g: 0, life: 4, dmg: 6, r: 3, kind: 'orb' }); }
+        } else {                                              // tight fan aimed at u
+          const base = Math.atan2(b.y - mawY, b.x + b.vx * 0.3 - mawX);
+          for (let k = -2; k <= 2; k++) { const a = base + k * 0.16; spore(mawX, mawY, Math.cos(a) * 125, Math.sin(a) * 125, { g: 0, life: 3.5, dmg: 6, r: 3, kind: 'orb' }); }
+        }
+      }
+      if (e.t > EL_T.volley) next();
+      return;
+    }
+    if (e.state === 'slam') {
+      if (e.t > 0.42 && !e.did) {                              // the ground answers, shockwaves go both ways
+        e.did = 1; AU.slam(); shake(0.75); hitstop(0.09); flash(0.22);
+        ring(e.x, e.gy - 2, 140, { speed: 280, flat: 0.3 }); ring(e.x, e.gy - 2, 90, { speed: 180, flat: 0.3, col: GLOW });
+        burst(e.x, e.gy - 3, 26, { color: [GLOW2, EYE, '#75352f'], speed: 220, life: 0.7, g: 520, angle: -Math.PI / 2, spread: 2.6 });
+        for (const d of [-1, 1]) S.waves.push({ x: e.x + d * 30, gy: e.gy, dir: d, life: 1.25, step: 0, hit: false });
+      }
+      if (e.t > EL_T.slam) next();
+      return;
+    }
+    if (e.state === 'engulf') {
+      const reach = ad < 64 || e.cycle >= 1 || e.under;
+      if (!reach && e.t < 0.05) { next(); return; }            // still too far, keep shooting
+      if (e.t < 0.45 && !e.under) e.x += Math.sign(dx) * Math.min(ad, 190 * dt);   // it lunges
+      if (e.t > 0.45 && !e.did) {
+        e.did = 1;
+        if ((Math.abs(b.x - e.x) < 38 && b.y > e.gy - 90 && b.y < e.gy + 10) || e.under) { engulf(e); return; }
+        AU.slam(); shake(0.35);
+      }
+      if (e.t > EL_T.engulf) {
+        if (e.cycle >= 1 && G.phase === 'play') { const c = e.cycle; S.elder = null; spawnElder([0, 6, -6, 12, -12], true); if (S.elder) S.elder.cycle = c; return; }   // no escape, it comes up right under u
+        next();
+      }
+    }
+  }
+  function engulf(e) {
+    const R = G.run, b = G.ball;
+    R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = 0; R.spores++; G.roomSpores++;
+    AU.engulf(); AU.dnaLoss(); shake(0.6); hitstop(0.18); flash(0.6, '#0a0912');
+    ring(b.x, b.y, 60, { speed: 160 });
+    burst(b.x, b.y, 26, { color: [DEEP, '#fff2cc', GLOW], speed: 130, life: 0.8 });
+    popup(`-${Math.round(R.dnaLag)} DNA`, b.x, b.y - 18, '#ffb0b0');
+    G.phase = 'dead'; G.phaseT = 0.45; G.padGrown = true;
+    G.deadHold = 1.2 + ELDER_LINE.length * 0.045 + 1.6;      // hold on the moment while the hooded guy talks
+    G.elderPad = { x: b.x, y: b.y };
+    const hi = ELDER_LINE.indexOf('Bounce back');
+    G.oracle = { line: ELDER_LINE, hl: [hi, hi + 'Bounce back'.length], t: -0.6, dur: 1.2 + ELDER_LINE.length * 0.045 + 3.4, chars: 0 };
+    elderGo(e, 'sated');
+    S.shots = S.shots.filter(s => s.kind !== 'orb'); S.waves = [];
+    setTimeout(() => AU.oracle(), 600);
+  }
+
   /* main update */
   function update(dt) {
     const b = G.ball, R = G.run;
     spawnFromQueue();
+    // level 1: a few steps in and the elder comes up. ur not meant to win this one
+    if (G.level === 0 && !R.elderDone && G.roomT > 2.5 && b.grounded && Math.hypot(b.x - W().start.x, b.y - W().start.y) > 80) { if (spawnElder()) R.elderDone = true; }
+    if (S.elder) {
+      updateElder(dt);
+      const e = S.elder;
+      if (e && e.state !== 'rise' && e.state !== 'sated') {
+        for (const t of S.toxins) if ((t.x - e.x) ** 2 + ((t.y - (e.gy - 34)) * 1.3) ** 2 < 32 ** 2) {
+          t.life = 0; e.flash = 0.08; AU.splat(); S.splats.push({ x: t.x, y: t.y, t: 0 });
+          if (e.shrug++ === 0) popup("It doesn't even notice.", e.x, e.gy - 86, '#c2bba8');
+        }
+      }
+    }
     if (S.cd > 0) S.cd -= dt;
     if (G.iframes > 0) G.iframes -= dt;
     if (G.shake > 0) G.shake -= dt;
@@ -411,6 +544,7 @@ window.makeCombat = function (A) {
     for (const e of S.enemies) {
       if (e.dead) continue;
       if (Math.abs(e.x - b.x) > 760 || Math.abs(e.y - b.y) > 520) continue;      // rivals that are far away just sleep
+      if (elderActive()) { if (e.type === 'shroom') { e.vx = 0; e.alert = 0; } continue; }   // everything freezes while the elder is out
       if (e.type === 'shroom') updateShroom(e, dt, P); else if (e.type === 'drift') updateDrift(e, dt, P); else updateWorm(e, dt, P);
       if (e.dead) continue;
       // touching: stomp from above, otherwise it hurts (u cant touch a worm thats hiding)
@@ -461,7 +595,7 @@ window.makeCombat = function (A) {
       }
     }
     S.clouds = S.clouds.filter(c => c.t < c.life);
-    // spores
+    // spores and the elders glowing orbs
     for (const s of S.shots) {
       s.life -= dt; s.vy += s.g * dt; s.x += s.vx * dt; s.y += s.vy * dt;
       s.trail.push([s.x, s.y]); if (s.trail.length > 5) s.trail.shift();
@@ -469,9 +603,19 @@ window.makeCombat = function (A) {
       else if (solidAt(s.x, s.y) || waterAt(s.x, s.y)) { s.life = 0; burst(s.x, s.y - 2, 5, { color: [GLOW, GLOW2], speed: 50, life: 0.35 }); }
     }
     S.shots = S.shots.filter(s => s.life > 0);
+    // the elders shockwaves, jump over them
+    for (const w of S.waves) {
+      w.life -= dt; const nx = w.x + w.dir * 150 * dt;
+      const gy = groundBelow(nx, w.gy - 24);
+      if (gy == null || Math.abs(gy - w.gy) > 18) { w.life = 0; continue; }
+      w.x = nx; w.gy = gy; w.step += 150 * dt;
+      if (w.step > 11) { w.step = 0; burst(w.x, w.gy - 1, 2, { color: [GLOW2, '#75352f'], speed: 70, life: 0.4, g: 400, angle: -Math.PI / 2, spread: 1 }); }
+      if (!w.hit && Math.abs(b.x - w.x) < 9 && b.y > w.gy - 16 && b.y < w.gy + 4) { w.hit = true; hurtPlayer(8, w.x, w.gy); }
+    }
+    S.waves = S.waves.filter(w => w.life > 0);
     fxTick(dt);
   }
-  /* effects stuff. also runs while ur down */
+  /* effects stuff. also runs while ur down so the elder moment can play out */
   function fxTick(dt) {
     for (const sp of S.splats) sp.t += dt;
     for (const k of S.corpses) {
@@ -484,6 +628,7 @@ window.makeCombat = function (A) {
     S.motes = S.motes.filter(m => m.t < m.life);
     for (const r of rings) r.r += r.speed * dt * (1 - r.r / r.max * 0.6);
     for (let i = rings.length - 1; i >= 0; i--) if (rings[i].r >= rings[i].max) rings.splice(i, 1);
+    G.dark = (G.dark || 0) + ((G.darkT || 0) - (G.dark || 0)) * Math.min(1, dt * (G.darkT ? 1.6 : 0.7));
   }
   const PHYS_R = A.PHYS.R;
 
@@ -562,6 +707,19 @@ window.makeCombat = function (A) {
     else anim(c, 'wm_idle', e.t * 8, e.x, e.gy, e.face, o);
     if (e.state !== 'lurk') hpPips(c, e, e.x, e.gy - 32);
   }
+  function drawElder(c, t) {
+    const e = S.elder; if (!e) return;
+    const T = EL_T, o = { flash: e.flash > 0, hold: true };
+    glow(c, e.x, e.gy - 40, 46, CAP, 0.8);
+    let name = 'el_idle', f = e.t * 9; o.hold = false;
+    if (e.state === 'rise') { name = 'el_rise'; f = e.t / T.rise * 8; o.hold = true; }
+    else if (e.state === 'roar') { name = 'el_roar'; f = e.t / T.roar * 8; o.hold = true; }
+    else if (e.state === 'volley' || e.state === 'fan') { name = 'el_volley'; f = e.t / T.volley * 6; o.hold = true; }
+    else if (e.state === 'slam') { name = 'el_slam'; f = e.t / T.slam * 8; o.hold = true; }
+    else if (e.state === 'engulf') { name = 'el_engulf'; f = e.t / T.engulf * 6; o.hold = true; }
+    else if (e.state === 'sated') { name = 'el_sink'; f = e.t / T.sink * 6; o.hold = true; }
+    anim(c, name, f, e.x, e.gy, e.face, o);
+  }
   function drawCorpses(c) {
     for (const k of S.corpses) {
       const M = MAN[k.anim]; if (!M) continue;
@@ -569,9 +727,20 @@ window.makeCombat = function (A) {
       anim(c, k.anim, f, k.x, k.y, k.face, { alpha: Math.max(0, a), flash: k.t < 0.06 });
     }
   }
+  /* every light in the scene (for the elders darkness) */
+  function lights() {
+    const L = [];
+    if (S.elder) L.push({ x: S.elder.x, y: S.elder.gy - 40, r: 112 + Math.sin(G.time * 3) * 3 });
+    for (const s of S.shots) L.push({ x: s.x, y: s.y, r: s.kind === 'orb' ? 13 : 9, p: 0.55 });
+    for (const t of S.toxins) L.push({ x: t.x, y: t.y, r: 12, p: 0.55, warm: 1 });
+    for (const e of S.enemies) L.push({ x: e.x, y: e.type === 'worm' ? e.gy - 14 : e.y - 8, r: 30, p: 0.7 });
+    for (const w of S.waves) L.push({ x: w.x, y: w.gy - 8, r: 22, p: 0.7 });
+    return L;
+  }
   function draw(c, t) {
     const cam = G.cam;
     drawCorpses(c);
+    drawElder(c, t);
     for (const e of S.enemies) {
       if (e.dead || Math.abs(e.x - cam.x - 320) > 380 || Math.abs(e.y - cam.y - 200) > 260) continue;
       if (e.type === 'shroom') drawShroom(c, e, t); else if (e.type === 'drift') drawDrift(c, e, t); else drawWorm(c, e, t);
@@ -623,6 +792,7 @@ window.makeCombat = function (A) {
     c.globalAlpha = 1;
   }
 
-  return { anim, S, reset, update, fxTick, draw, drawReticle, blast, autoBlast, hurtPlayer, damage, makeShroom, makeDrift, makeWorm, simLeap };
+  const elderActive = () => !!S.elder && S.elder.state !== 'sated';
+  return { anim, S, reset, update, fxTick, updateElder, drawElder, elderActive, draw, drawReticle, blast, autoBlast, hurtPlayer, damage, makeShroom, makeDrift, makeWorm, simLeap, lights, disc };
 };
 })();
