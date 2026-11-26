@@ -794,6 +794,10 @@ function fixedUpdate(dt) {
     const r = stepBall(w, b, dt, ev);
     if (!canSling()) { G.kbAim.on = false; if (G.aim) G.aim = null; }
     if (b.grounded) { resetAirCharges(); if (!wasGround && preVy > 300) { fx('dust', b.x, b.y + 3, { sc: 0.7 }); } }
+    if (!wasGround && b.grounded && preVy > 110) {
+      b.land = Math.min(1, preVy / 420);
+    }
+    b.land = Math.max(0, (b.land || 0) - dt * 5); b.roll = (b.roll || 0) + b.vx * dt / PHYS.R * (b.grounded ? 1 : 0.5);
     for (const e of ev) {
       if (e.t === 'hit') {
         if (e.kind === 'cap') { AU.cap(); e.ref.squish = 1; fx('sparkB', e.x, e.y, { sc: 0.9 }); }
@@ -1213,24 +1217,65 @@ function drawFly(f, t, i) {
   ctx.fillStyle = '#fbffd0'; ctx.fillRect(x - 1, y - 1, 2, 2);
   ctx.fillStyle = '#c8e0ff'; if ((t * 12 | 0) % 2) { ctx.fillRect(x - 3, y - 2, 2, 1); ctx.fillRect(x + 1, y - 2, 2, 1); }
 }
-/* the spore. a little pixel seed with a sprout, eyes follow where its going */
+/* puff, the spore u play as. a lil puffball mushroom, drawn here pixel by pixel */
+const PUFF = ['#8c7452', '#bba47a', '#e3d3ac', '#f6ecd2'], PUFF_OUT = '#1c1420';
+const PUFF_L = (() => { const v = [-0.55, -0.68, 0.48], n = Math.hypot(...v); return v.map(x => x / n); })();
+const phash = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
+function sporeSprite(rollQ, sqQ, lx, ly, eyes, mouth) {
+  return PK.cached(`puff:${rollQ}:${sqQ}:${lx}:${ly}:${eyes}:${mouth}`, () => {
+    const W = 16, H = 16, sq = sqQ / 20, R = 5.9, rx = R * (1 + sq), ry = R * (1 - sq), cx = 8, cy = 8 + sq * 3;
+    const roll = rollQ / 12 * Math.PI * 2, ca = Math.cos(roll), sa = Math.sin(roll);
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x2 = c.getContext('2d'), img = x2.createImageData(W, H), d = img.data, M = new Uint8Array(W * H);
+    const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+    const set = (i, j, col) => { i = Math.round(i); j = Math.round(j); if (i < 0 || j < 0 || i >= W || j >= H) return; const k = (j * W + i) * 4, v = hex(col); d[k] = v[0]; d[k + 1] = v[1]; d[k + 2] = v[2]; d[k + 3] = 255; };
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      const u = (i + 0.5 - cx) / rx, v = (j + 0.5 - cy) / ry, dd = u * u + v * v;
+      if (dd > 1) continue;
+      M[j * W + i] = 1;
+      const nz = Math.sqrt(1 - dd), li = u * PUFF_L[0] + v * PUFF_L[1] + nz * PUFF_L[2];
+      const lv = li < 0 ? 0 : li < 0.35 ? 1 : li < 0.72 ? 2 : 3;
+      let col = PUFF[lv];
+      const xr = u * ca + v * sa, yr = -u * sa + v * ca;                    // speckles sit on the rolling surface
+      if (nz > 0.3 && phash(Math.round(xr * 7), Math.round(yr * 7)) > 0.86) col = lv > 1 ? '#a88d62' : '#6e5a3e';
+      set(i, j, col);
+    }
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) if (!M[j * W + i] && ((i > 0 && M[j * W + i - 1]) || (i < W - 1 && M[j * W + i + 1]) || (j > 0 && M[(j - 1) * W + i]) || (j < H - 1 && M[(j + 1) * W + i]))) set(i, j, PUFF_OUT);
+    // pore on top
+    const top = Math.round(cy - ry); set(cx - 1, top + 1, '#6e5a3e'); set(cx, top + 1, '#8c7452');
+    // face
+    const ex = Math.round(cx + lx * 1.2 - 0.5), ey = Math.round(cy - 0.5 + ly * 0.8 + sq * 2), INK = '#2a1e26';
+    for (const x of [ex - 2, ex + 2]) {
+      if (eyes === 'open') { set(x, ey, INK); set(x, ey + 1, INK); }
+      else if (eyes === 'blink') set(x, ey + 1, INK);
+      else if (eyes === 'hurt') { set(x - 1, ey, INK); set(x, ey + 1, INK); set(x + 1, ey, INK); }
+      else { set(x, ey + 1, INK); set(x + (x < ex ? 1 : -1), ey, '#6e5a3e'); }     // aiming: squinty with a brow
+    }
+    set(ex - 3, ey + 2, '#f0a0a0'); set(ex + 3, ey + 2, '#f0a0a0');
+    if (mouth === 'o') { set(ex, ey + 2, '#6e4a3a'); set(ex, ey + 3, '#6e4a3a'); } else set(ex, ey + 2, '#6e4a3a');
+    x2.putImageData(img, 0, 0);
+    return c;
+  });
+}
+const PUFF_SPORES = ['#ffe6a8', '#f6ecd2', '#ffd27a'];
 function drawBall(b, t, alpha = 1) {
-  const x = Math.round(b.x), y = Math.round(b.y);
-  ctx.globalAlpha = alpha;
-  for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
-    const d = dx * dx + dy * dy;
-    if (d > 27) continue;
-    ctx.fillStyle = d > 17 ? '#3a2418' : dy > 1 ? '#d9a062' : (dx < -1 && dy < -1) ? '#fff2cc' : '#f5d79c';
-    ctx.fillRect(x + dx, y + dy, 1, 1);
+  const sp = Math.hypot(b.vx || 0, b.vy || 0), air = !b.grounded && sp > 120;
+  const stretch = air ? Math.min(0.16, sp / 2800) : 0, sq = Math.max(-0.2, Math.min(0.25, (b.land || 0) * 0.25 - stretch));
+  const sqQ = Math.round(sq * 20), rollQ = (((Math.round(((b.roll || 0) / (Math.PI * 2)) * 12)) % 12) + 12) % 12;
+  const lx = sp > 25 ? Math.round(Math.max(-1, Math.min(1, b.vx / 80))) : (G.facing || 0) * (G.state === 'play' ? 1 : 0), ly = sp > 60 ? Math.round(Math.max(-1, Math.min(1, b.vy / 200))) : 0;
+  const hurt = G.state === 'play' && G.iframes > 0, aiming = G.state === 'play' && (G.aim || G.kbAim.on);
+  const eyes = hurt ? 'hurt' : aiming ? 'aim' : (t % 3.3) < 0.12 ? 'blink' : 'open';
+  const spr = sporeSprite(rollQ, sqQ, lx, ly, eyes, sp > 330 ? 'o' : '-');
+  PK.blit(ctx, spr, 8, 8 + sqQ / 20 * 3, b.x, b.y, false, 1, alpha);
+  // every landing puffs warm spores out the pore, otherwise a lazy lil wisp floats up
+  const top = b.y - 5.9 * (1 - sq) - 1;
+  if ((b.land || 0) > 0.35 && !b._puffed && G.state === 'play') { b._puffed = true; burst(b.x, top, 6, { color: PUFF_SPORES, speed: 45, life: 0.7, g: -30, angle: -Math.PI / 2, spread: 1.8 }); }
+  if ((b.land || 0) < 0.1) b._puffed = false;
+  ctx.globalAlpha = alpha * 0.85;
+  for (let k = 0; k < 2; k++) {
+    const ph = (t * 0.9 + k * 0.5) % 1;
+    ctx.fillStyle = PUFF_SPORES[k]; ctx.fillRect(Math.round(b.x + Math.sin(t * 2 + k * 2) * 1.5), Math.round(top - 1 - ph * 6), 1, 1);
   }
-  const sp = Math.hypot(b.vx, b.vy), lx = sp > 20 ? Math.round(b.vx / sp * 1.5) : 0, ly = sp > 20 ? Math.round(b.vy / sp * 1) : 0;
-  ctx.fillStyle = '#2b1a14';
-  if ((t % 3.3) > 0.12) { ctx.fillRect(x - 2 + lx, y - 1 + ly, 1, 2); ctx.fillRect(x + 1 + lx, y - 1 + ly, 1, 2); }
-  else { ctx.fillRect(x - 2 + lx, y + ly, 1, 1); ctx.fillRect(x + 1 + lx, y + ly, 1, 1); }
-  const lean = Math.max(-2, Math.min(2, Math.round(-b.vx / 120)));
-  ctx.fillStyle = '#4f9a5a'; ctx.fillRect(x, y - 6, 1, 2);
-  ctx.fillStyle = '#7fd36f'; ctx.fillRect(x - 2 + lean, y - 8, 2, 1); ctx.fillRect(x + 1 + lean, y - 8, 2, 1);
-  ctx.fillStyle = '#9fe08a'; ctx.fillRect(x - 1 + lean, y - 7, 1, 1); ctx.fillRect(x + 1 + lean, y - 7, 1, 1);
   ctx.globalAlpha = 1;
 }
 function drawAim(t) {

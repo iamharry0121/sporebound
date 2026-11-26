@@ -131,6 +131,7 @@ window.makeCombat = function (A) {
     AU.ouch(); AU.dnaLoss();
     popup(`-${Math.round(dmg)} DNA`, b.x, b.y - 16, '#ffb0b0');
     burst(b.x, b.y, 8, { color: ['#ffb0b0', '#fff2cc'], speed: 90, life: 0.4 });
+   
     S.stats.hits++;
     if (R.dna <= 0) { R.spores++; G.roomSpores++; G.phase = 'dead'; G.phaseT = 0.45; G.padGrown = true; }
     return true;
@@ -141,7 +142,8 @@ window.makeCombat = function (A) {
     if (e.type === 'drift' && e.dash > 0) return;
     e.hp -= dmg; e.flash = 0.15; e.sq = 1;
     const h = hitbox(e) || e;
-    hitstop(0.035);
+    fx('impB', h.x, h.y, { sc: 0.6, speed: 30 }); hitstop(0.035);
+   
     if (e.type === 'shroom') { e.vx += kx; e.vy = Math.min(e.vy, ky); e.alert = 4; e.lx = G.ball.x; e.ly = G.ball.y; e.charge = 0; }
     else if (e.type === 'drift') { e.vx += kx * 0.6; e.vy += ky * 0.3; e.state = 'awake'; e.charge = 0; }
     else if (e.type === 'worm' && e.state !== 'strike') { e.state = 'hit'; e.st = 0; }
@@ -153,7 +155,8 @@ window.makeCombat = function (A) {
     S.killed.add(e.id);
     AU.rivalDie(); shake(0.14); hitstop(0.07);
     const h = hitbox(e) || { x: e.x, y: e.y };
-    ring(h.x, h.y, 22, { speed: 140 });
+    fx('popB', h.x, h.y, { sc: 1, speed: 26 }); ring(h.x, h.y, 22, { speed: 140 });
+   
     burst(h.x, h.y, 16, { color: [GLOW, GLOW2, CAP, EYE], speed: 120, life: 0.7, g: 120 });
     for (let i = 0; i < 6; i++) S.motes.push({ x: h.x + (rnd() - 0.5) * 12, y: h.y + (rnd() - 0.5) * 8, vx: (rnd() - 0.5) * 20, vy: -12 - rnd() * 18, t: 0, life: 1.4 + rnd() });
     const anim = { shroom: 'sh_die', drift: 'dc_die', worm: 'wm_die' }[e.type];
@@ -173,6 +176,7 @@ window.makeCombat = function (A) {
     S.cd = R.toxCd;
     if (!b.grounded) { b.vx -= dx * 28; b.vy -= dy * 28; }       // lil recoil in the air
     AU.blast(); S.splats.push({ x: b.x + dx * 8, y: b.y + dy * 8, t: 0.12 });
+   
     return true;
   }
   /* keyboard blast. aims at the closest rival u can see, if theres none it shoots straight ahead */
@@ -259,7 +263,7 @@ window.makeCombat = function (A) {
       e.charge -= dt; e.vx *= 0.7;
       if (e.charge <= 0) {
         const mx = e.x + e.face * 9, my = e.y - 8, sol = aimAt(mx, my, P, 230);
-        if (sol) { spore(mx, my, sol.vx, sol.vy, { dmg: 8 }); AU.puff(); e.sq = 1; S.stats.spits++; e.spat = 0.35; }
+        if (sol) { spore(mx, my, sol.vx, sol.vy, { dmg: 8 }); AU.puff(); e.sq = 1; S.stats.spits++; fx('puffW', mx + e.face * 4, my, { sc: 0.55, speed: 40, rot: e.face < 0 ? Math.PI : 0 }); e.spat = 0.35; }
         e.spitCd = Math.max(1.6, 3.2 - G.prog * 1.2) + rnd();
       }
     } else if (e.crouch > 0) {
@@ -354,6 +358,7 @@ window.makeCombat = function (A) {
             if (G.prog > 0.3) for (const k of [-1, 1]) spore(e.x, e.y + 6, sol.vx * (1 + k * 0.14), sol.vy * (1 - k * 0.08), { dmg: 7 });
           }
         }
+        fx('puffW', e.x, e.y + 8, { sc: 0.5, speed: 40, rot: Math.PI / 2 });
         e.cd = Math.max(1.2, 2.6 - G.prog * 1.0) + rnd() * 0.6;
       }
     } else if (e.cd <= 0 && sees && d < 240) { e.charge = 0.5; AU.charge(); }
@@ -378,7 +383,7 @@ window.makeCombat = function (A) {
       }
       if (near && Math.abs(dx) < 34 && e.cd <= 0) {
         e.state = 'emerge'; e.st = 0; e.face = Math.sign(dx) || 1; S.stats.ambushes++;
-        AU.burrow(); shake(0.16);
+        AU.burrow(); shake(0.16); fx('dirtUp', e.x, e.gy - 12, { sc: 0.9, speed: 22 });
         burst(e.x, e.gy - 2, 12, { color: ['#75352f', '#914b2f', '#46262b'], speed: 130, life: 0.6, g: 420, spread: 1.6 });
       }
       return;
@@ -395,7 +400,7 @@ window.makeCombat = function (A) {
       if (f >= 3 && f < 6 && !e.hitDone) {                  // the snap, head whips down in front of it
         const [rx, ry] = f < 4 ? [21, 10] : f < 5 ? [25, 8] : [23, 9], hx = e.x + e.face * rx, hy = e.gy - ry;
         if (Math.hypot(P.x - hx, P.y - hy) < 12) { e.hitDone = true; hurtPlayer(12, e.x, e.gy - 14); }
-        if (f >= 3 && !e.snapped) { e.snapped = true; AU.snap(); S.stats.strikes++; }
+        if (f >= 3 && !e.snapped) { e.snapped = true; AU.snap(); fx('hitDir', e.x + e.face * 26, e.gy - 9, { sc: 0.6, rot: e.face < 0 ? Math.PI : 0, speed: 30 }); S.stats.strikes++; }
       }
       if (e.st > WORM_T.strike) { e.snapped = false; e.strikes++; e.state = e.strikes >= 2 ? 'burrow' : 'up'; e.st = 0; e.away = 0; if (e.state === 'burrow') AU.burrow(); }
     }
@@ -431,7 +436,7 @@ window.makeCombat = function (A) {
     if (e.state === 'rise') {
       if (e.under) { e.x += (b.x - e.x) * Math.min(1, dt * 5); const g2 = groundBelow(e.x, b.y - 30); if (g2 != null) e.gy = g2; }   // it follows u under the soil
       if (rnd() < dt * 24) burst(e.x + (rnd() - 0.5) * 70, e.gy - 1, 1, { color: ['#75352f', '#46262b', GLOW], speed: 90, life: 0.6, g: 300 });
-      if (rnd() < dt * 6)
+      if (rnd() < dt * 6) fx('smokeP', e.x + (rnd() - 0.5) * 60, e.gy - 8, { sc: 0.9, speed: 18 });
       shake(0.12);
       if (e.t > EL_T.rise) {
         if (e.under) { elderGo(e, 'engulf'); return; }
@@ -442,7 +447,9 @@ window.makeCombat = function (A) {
     if (e.state === 'roar') {
       if (e.t > 0.3 && !e.did) {
         e.did = 1; AU.roar(); shake(0.7); flash(0.45); hitstop(0.12);
+        fx('ringBig', mawX, mawY, { sc: 1, speed: 16 }); fx('flareB', mawX, mawY, { sc: 1, speed: 18 });
         ring(mawX, mawY, 170, { speed: 300 }); ring(mawX, mawY, 120, { speed: 200, col: GLOW });
+       
         for (let i = 0; i < 18; i++) { const a = i / 18 * Math.PI * 2; burst(mawX + Math.cos(a) * 16, mawY + Math.sin(a) * 10, 1, { color: [GLOW2, EYE], speed: 160, life: 0.6, g: 0, angle: a, spread: 0.2 }); }
       }
       if (e.t > EL_T.roar) elderGo(e, PATTERN[e.step % PATTERN.length]);
@@ -464,7 +471,7 @@ window.makeCombat = function (A) {
     const next = () => { e.step++; if (e.step % PATTERN.length === 0) e.cycle++; elderGo(e, PATTERN[e.step % PATTERN.length]); };
     if (e.state === 'volley' || e.state === 'fan') {
       if (e.t > 0.32 && !e.did) {
-        e.did = 1; AU.volley(); shake(0.18);
+        e.did = 1; AU.volley(); shake(0.18); fx('boltB', mawX, mawY + 2, { sc: 1, speed: 26 });
         if (e.state === 'volley') {                           // full ring of glowing spores with a gap to slip through
           const n = 14, gap = Math.atan2(b.y - mawY, b.x - mawX) + (rnd() < 0.5 ? 0.9 : -0.9);
           for (let k = 0; k < n; k++) { const a = gap + (k + 0.5) / n * Math.PI * 2; if (Math.abs(((a - gap + Math.PI) % (Math.PI * 2)) - Math.PI) < 0.45) continue;
@@ -480,8 +487,9 @@ window.makeCombat = function (A) {
     if (e.state === 'slam') {
       if (e.t > 0.42 && !e.did) {                              // the ground answers, shockwaves go both ways
         e.did = 1; AU.slam(); shake(0.75); hitstop(0.09); flash(0.22);
-        ring(e.x, e.gy - 2, 140, { speed: 280, flat: 0.3 }); ring(e.x, e.gy - 2, 90, { speed: 180, flat: 0.3, col: GLOW });
+        fx('slamUp', e.x, e.gy - 18, { sc: 1.4, speed: 18 }); ring(e.x, e.gy - 2, 140, { speed: 280, flat: 0.3 }); ring(e.x, e.gy - 2, 90, { speed: 180, flat: 0.3, col: GLOW });
         burst(e.x, e.gy - 3, 26, { color: [GLOW2, EYE, '#75352f'], speed: 220, life: 0.7, g: 520, angle: -Math.PI / 2, spread: 2.6 });
+       
         for (const d of [-1, 1]) S.waves.push({ x: e.x + d * 30, gy: e.gy, dir: d, life: 1.25, step: 0, hit: false });
       }
       if (e.t > EL_T.slam) next();
@@ -506,7 +514,7 @@ window.makeCombat = function (A) {
     const R = G.run, b = G.ball;
     R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = 0; R.spores++; G.roomSpores++;
     AU.engulf(); AU.dnaLoss(); shake(0.6); hitstop(0.18); flash(0.6, '#0a0912');
-    ring(b.x, b.y, 60, { speed: 160 });
+    fx('popB', b.x, b.y, { sc: 1.4, speed: 22 }); ring(b.x, b.y, 60, { speed: 160 });
     burst(b.x, b.y, 26, { color: [DEEP, '#fff2cc', GLOW], speed: 130, life: 0.8 });
     popup(`-${Math.round(R.dnaLag)} DNA`, b.x, b.y - 18, '#ffb0b0');
     G.phase = 'dead'; G.phaseT = 0.45; G.padGrown = true;
@@ -530,7 +538,7 @@ window.makeCombat = function (A) {
       const e = S.elder;
       if (e && e.state !== 'rise' && e.state !== 'sated') {
         for (const t of S.toxins) if ((t.x - e.x) ** 2 + ((t.y - (e.gy - 34)) * 1.3) ** 2 < 32 ** 2) {
-          t.life = 0; e.flash = 0.08; AU.splat(); S.splats.push({ x: t.x, y: t.y, t: 0 });
+          t.life = 0; e.flash = 0.08; AU.splat(); S.splats.push({ x: t.x, y: t.y, t: 0 }); fx('impB', t.x, t.y, { sc: 0.5, speed: 30 });
           if (e.shrug++ === 0) popup("It doesn't even notice.", e.x, e.gy - 86, '#c2bba8');
         }
       }
@@ -553,7 +561,7 @@ window.makeCombat = function (A) {
       if (dx * dx + dy * dy < (h.r + PHYS_R) ** 2 && G.phase === 'play') {
         if (b.vy > 60 && dy < -h.r * 0.3) {
           b.vy = -300; b.coyote = 0; b.slings = Math.max(b.slings || 0, 1);                 // bounce back, sling refilled
-          AU.stomp(); fx('sparkB', b.x, b.y + 4, { sc: 0.8 }); damage(e, 1, 0, -60);
+          AU.stomp(); fx('sparkB', b.x, b.y + 4, { sc: 0.8 }); fx('hitDir', b.x, b.y + 6, { sc: 0.6, rot: Math.PI / 2, speed: 30 }); damage(e, 1, 0, -60);
           e.sq = 1;
         } else if (e.type !== 'worm' || e.state === 'strike') {
           if (hurtPlayer(e.type === 'drift' ? 6 : (e.dmg || 10), h.x, h.y)) {
@@ -574,15 +582,17 @@ window.makeCombat = function (A) {
         if ((t.x - h.x) ** 2 + (t.y - h.y) ** 2 < (h.r + 2) ** 2) {
           t.life = 0; const d = Math.sign(t.vx) || 1;
           damage(e, t.dmg, d * 150, -110); AU.splat(); S.splats.push({ x: t.x, y: t.y, t: 0 });
+          fx('splatG', t.x, t.y, { sc: 0.55, speed: 30 });
           burst(t.x, t.y, 8, { color: ['#b6ff5a', '#f0ffb0', '#6fbf3a'], speed: 90, life: 0.45 });
         }
       }
       for (const s of S.shots) if (t.life > 0 && s.life > 0 && (t.x - s.x) ** 2 + (t.y - s.y) ** 2 < (s.r + 4) ** 2) {   // shoot spores out of the air
-        t.life = 0; s.life = 0; AU.splat(); burst(s.x, s.y, 8, { color: [GLOW2, '#b6ff5a'], speed: 80, life: 0.4 });
+        t.life = 0; s.life = 0; AU.splat(); fx('orbPop', s.x, s.y, { sc: 0.4, speed: 34 }); burst(s.x, s.y, 8, { color: [GLOW2, '#b6ff5a'], speed: 80, life: 0.4 });
       }
       if (t.life > 0 && solidAt(t.x, t.y)) {
         t.life = 0; AU.splat(); S.splats.push({ x: t.x, y: t.y - 2, t: 0 }); burst(t.x, t.y - 2, 7, { color: ['#b6ff5a', '#6fbf3a'], speed: 70, life: 0.4 });
         S.clouds.push({ x: t.x - Math.sign(t.vx) * 3, y: t.y - 6, t: 0, life: 1.3, dmg: t.dmg * 0.5, hit: new Set() });
+        fx('poisonG', t.x - Math.sign(t.vx) * 3, t.y - 14, { sc: 0.45, speed: 14 });
       }
     }
     S.toxins = S.toxins.filter(t => t.life > 0);
@@ -599,8 +609,8 @@ window.makeCombat = function (A) {
     for (const s of S.shots) {
       s.life -= dt; s.vy += s.g * dt; s.x += s.vx * dt; s.y += s.vy * dt;
       s.trail.push([s.x, s.y]); if (s.trail.length > 5) s.trail.shift();
-      if ((s.x - b.x) ** 2 + (s.y - b.y) ** 2 < (PHYS_R + s.r) ** 2) { s.life = 0; hurtPlayer(s.dmg, s.x, s.y); }
-      else if (solidAt(s.x, s.y) || waterAt(s.x, s.y)) { s.life = 0; burst(s.x, s.y - 2, 5, { color: [GLOW, GLOW2], speed: 50, life: 0.35 }); }
+      if ((s.x - b.x) ** 2 + (s.y - b.y) ** 2 < (PHYS_R + s.r) ** 2) { s.life = 0; if (hurtPlayer(s.dmg, s.x, s.y)) fx('orbPop', s.x, s.y, { sc: 0.4, speed: 34 }); }
+      else if (solidAt(s.x, s.y) || waterAt(s.x, s.y)) { s.life = 0; fx('orbPop', s.x, s.y - 2, { sc: 0.35, speed: 34 }); burst(s.x, s.y - 2, 5, { color: [GLOW, GLOW2], speed: 50, life: 0.35 }); }
     }
     S.shots = S.shots.filter(s => s.life > 0);
     // the elders shockwaves, jump over them
@@ -609,7 +619,7 @@ window.makeCombat = function (A) {
       const gy = groundBelow(nx, w.gy - 24);
       if (gy == null || Math.abs(gy - w.gy) > 18) { w.life = 0; continue; }
       w.x = nx; w.gy = gy; w.step += 150 * dt;
-      if (w.step > 11) { w.step = 0; burst(w.x, w.gy - 1, 2, { color: [GLOW2, '#75352f'], speed: 70, life: 0.4, g: 400, angle: -Math.PI / 2, spread: 1 }); }
+      if (w.step > 11) { w.step = 0; fx('slamUp', w.x, w.gy - 10, { sc: 0.55, speed: 28 }); burst(w.x, w.gy - 1, 2, { color: [GLOW2, '#75352f'], speed: 70, life: 0.4, g: 400, angle: -Math.PI / 2, spread: 1 }); }
       if (!w.hit && Math.abs(b.x - w.x) < 9 && b.y > w.gy - 16 && b.y < w.gy + 4) { w.hit = true; hurtPlayer(8, w.x, w.gy); }
     }
     S.waves = S.waves.filter(w => w.life > 0);
