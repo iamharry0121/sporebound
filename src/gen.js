@@ -258,7 +258,9 @@ function makeLevel(n, seedOverride) {
       }
       if (!found) continue;
       pts2.push(found);
-      ambush.set(found[0] + ',' + found[1], 'shroom');
+      const hh = hash2(found[0], found[1], seed + 31);
+      const type = n === 0 ? 'shroom' : n === 1 ? 'drift' : n === 2 ? 'worm' : hh < 0.42 ? 'shroom' : hh < 0.72 ? 'drift' : 'worm';
+      ambush.set(found[0] + ',' + found[1], type);
     }
   }
   /* placing the scenery */
@@ -332,14 +334,18 @@ function makeLevel(n, seedOverride) {
       if (cap) c.caps.push({ tx: cap.tx, ty: cap.ty });
       const d = decoAt(Math.floor(x / DCELL), y);
       if (d && d.x === x) c.deco.push([d.kind, d.l, d.t]);          // props keep their exact pixel position
-      /* rivals: shroomlings walk on flat ground */
+      /* rivals: shroomlings walk on flat ground, driftcaps float over solid tops */
       let underCap = false; for (let qy = y - 1; qy <= y + 1 && !underCap; qy++) for (let qx = x - 4; qx <= x + 3; qx++) if (capAt(qx, qy)) { underCap = true; break; }
       const he = hash2(x, y, seed + 404), far = Math.hypot(x, y) > 22 && Math.hypot(x - ax, y - ay) > 7 && !underCap;
       const guard = underCap ? null : ambush.get(x + ',' + y);
       if (guard === 'shroom') c.enemies.push({ type: 'shroom', x: x * TS + 8, y: (y - 1) * TS + 8, id: k + ':a' + i + ':' + j });
+      else if (guard === 'drift') c.enemies.push({ type: 'drift', x: x * TS + 8, y: y * TS, id: k + ':f' + i + ':' + j });
+      else if (guard === 'worm') c.enemies.push({ type: 'worm', x: x * TS + 8, y: y * TS, id: k + ':w' + i + ':' + j });
       else if (far && structural(x, y - 3) === '.') {
         const flat = [-1, 1].every(d => structural(x + d, y) === '#' && structural(x + d, y - 1) === '.');
         if (flat && he < 0.013 + prog * 0.02) c.enemies.push({ type: 'shroom', x: x * TS + 8, y: (y - 1) * TS + 8, id: k + ':a' + i + ':' + j });
+        else if (flat && he > 0.993 - prog * 0.013) c.enemies.push({ type: 'drift', x: x * TS + 8, y: y * TS, id: k + ':f' + i + ':' + j });
+        else if (flat && n >= 2 && he > 0.5 && he < 0.506 + prog * 0.008 && [-2, 2].every(d => structural(x + d, y) === '#')) c.enemies.push({ type: 'worm', x: x * TS + 8, y: y * TS, id: k + ':w' + i + ':' + j });
       }
     }
     return c;

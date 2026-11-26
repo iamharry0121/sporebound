@@ -21,6 +21,9 @@ window.makeCombat = function (A) {
     ouch() { const t = this.now(); this.tone(330, t, 0.22, { type: 'square', gain: 0.045, glide: 120 }); this.noise(t, 0.15, { gain: 0.09, freq: 500 }); },
     stomp() { const t = this.now(); this.tone(210, t, 0.18, { gain: 0.1, glide: 480 }); this.noise(t, 0.08, { gain: 0.07, freq: 800 }); },
     leap() { const t = this.now(); this.tone(140, t, 0.16, { type: 'triangle', gain: 0.04, glide: 300 }); },
+    burrow() { const t = this.now(); this.noise(t, 0.3, { gain: 0.12, freq: 260, sweep: 900 }); this.tone(90, t, 0.25, { type: 'triangle', gain: 0.08, glide: 180 }); },
+    snap() { const t = this.now(); this.noise(t, 0.06, { gain: 0.12, freq: 2200, type: 'bandpass', q: 3 }); this.tone(620, t, 0.08, { type: 'square', gain: 0.03, glide: 300 }); },
+    volley() { const t = this.now(); this.noise(t, 0.2, { gain: 0.08, freq: 1500, sweep: 400, type: 'bandpass', q: 2 }); this.tone(240, t, 0.2, { type: 'triangle', gain: 0.06, glide: 600 }); },
   });
 
   /* juice: shockwave rings, flashes, freeze frames */
@@ -75,6 +78,8 @@ window.makeCombat = function (A) {
   /* where u can hit each rival, and where it hurts u from */
   function hitbox(e) {
     if (e.type === 'shroom') return { x: e.x, y: e.y - 3, r: 9 };
+    if (e.type === 'drift') return { x: e.x, y: e.y, r: 9 };
+    if (e.type === 'worm') return e.state === 'lurk' ? null : { x: e.x + e.face * 2, y: e.gy - 13, r: 7 };
     return { x: e.x, y: e.y, r: e.r };
   }
 
@@ -92,6 +97,8 @@ window.makeCombat = function (A) {
       if (S.killed.has(d.id) || S.seen.has(d.id)) continue;
       S.seen.add(d.id);
       if (d.type === 'shroom') S.enemies.push(makeShroom(d.x, d.y, d.id));
+      else if (d.type === 'drift') S.enemies.push(makeDrift(d.x, d.y, d.id));
+      else if (d.type === 'worm') S.enemies.push(makeWorm(d.x, d.y, d.id));
     }
   }
   function makeShroom(x, y, id) {
@@ -99,6 +106,15 @@ window.makeCombat = function (A) {
       state: 'wander', dir: rnd() < 0.5 ? -1 : 1, think: rnd() * 0.2, alert: 0, lx: x, ly: y, leapCd: 0.5, lungeCd: 0, spitCd: 1.5 + rnd(), charge: 0, crouch: 0, plan: null,
       dodgeCd: 0, recoil: 0, flash: 0, t: rnd() * 9, pause: 0, ground: false, wall: 0, sq: 0, slot: 0, face: 1 };
   }
+  function makeDrift(x, y, id) {
+    let hy = y - 46; for (let k = 0; k < 6 && solidAt(x, hy); k++) hy -= 16;
+    return { type: 'drift', id, x, y: hy, hx: x, hy, vx: 0, vy: 0, r: 9, hp: 3, max: 3, state: 'dormant', charge: 0, cd: 1 + rnd(), dodgeCd: 0, flash: 0,
+      t: rnd() * 9, sq: 0, face: 1, side: rnd() < 0.5 ? -1 : 1, fire: 0 };
+  }
+  function makeWorm(x, y, id) {
+    return { type: 'worm', id, x, hx: x, gy: y, y: y - 12, r: 7, hp: 3, max: 3, state: 'lurk', st: 0, cd: 0.6, flash: 0, t: rnd() * 9, face: 1, strikes: 0, away: 0, hitDone: false };
+  }
+
   /* stuff that touches the player */
   function hurtPlayer(dmg, fx0, fy0) {
     if (G.phase !== 'play' || G.iframes > 0) return false;
@@ -117,10 +133,14 @@ window.makeCombat = function (A) {
   }
   function damage(e, dmg, kx, ky) {
     if (e.dead) return;
+    if (e.type === 'worm' && (e.state === 'lurk' || e.state === 'burrow')) return;
+    if (e.type === 'drift' && e.dash > 0) return;
     e.hp -= dmg; e.flash = 0.15; e.sq = 1;
     const h = hitbox(e) || e;
     hitstop(0.035);
     if (e.type === 'shroom') { e.vx += kx; e.vy = Math.min(e.vy, ky); e.alert = 4; e.lx = G.ball.x; e.ly = G.ball.y; e.charge = 0; }
+    else if (e.type === 'drift') { e.vx += kx * 0.6; e.vy += ky * 0.3; e.state = 'awake'; e.charge = 0; }
+    else if (e.type === 'worm' && e.state !== 'strike') { e.state = 'hit'; e.st = 0; }
     AU.rivalHurt();
     if (e.hp <= 0) kill(e);
   }
@@ -132,7 +152,8 @@ window.makeCombat = function (A) {
     ring(h.x, h.y, 22, { speed: 140 });
     burst(h.x, h.y, 16, { color: [GLOW, GLOW2, CAP, EYE], speed: 120, life: 0.7, g: 120 });
     for (let i = 0; i < 6; i++) S.motes.push({ x: h.x + (rnd() - 0.5) * 12, y: h.y + (rnd() - 0.5) * 8, vx: (rnd() - 0.5) * 20, vy: -12 - rnd() * 18, t: 0, life: 1.4 + rnd() });
-    S.corpses.push({ anim: 'sh_die', x: e.x, y: e.y + e.r, face: e.face || 1, t: 0, vy: 0, fly: false });
+    const anim = { shroom: 'sh_die', drift: 'dc_die', worm: 'wm_die' }[e.type];
+    S.corpses.push({ anim, x: e.x, y: e.type === 'worm' ? e.gy : e.type === 'shroom' ? e.y + e.r : e.y, face: e.face || 1, t: 0, vy: e.type === 'drift' ? -40 : 0, fly: e.type === 'drift' });
     const R = G.run;
     if (R.devour) { const hh = Math.min(R.dnaMax - R.dna, 8); if (hh > 0) { R.dna += hh; popup(`+${hh} DNA`, h.x, h.y - 20, '#d8ffd0'); } }
   }
@@ -278,6 +299,105 @@ window.makeCombat = function (A) {
     if (waterAt(e.x, e.y + 1)) { AU.splat(); fx('bubble', e.x, e.y - 12, { rot: -Math.PI / 4, sc: 0.5 }); e.dead = true; S.stats.drowned++; S.killed.add(e.id); }
   }
 
+  /* driftcap brain (floats, rains spores, darts away) */
+  function updateDrift(e, dt, P) {
+    e.t += dt; e.cd -= dt; e.dodgeCd -= dt; e.flash -= dt; e.sq = Math.max(0, e.sq - dt * 3);
+    if (e.dash > 0) e.dash -= dt;
+    const d = Math.hypot(P.x - e.x, P.y - e.y), sees = d < 280 && los(e.x, e.y, P.x, P.y);
+    if (e.state === 'dormant') { if (sees && d < 230) { e.state = 'awake'; e.cd = 0.8; AU.puff(); } }
+    else if (!sees && d > 340) e.state = 'dormant';
+    // where it wants to be: above and to the side of u, but on a leash around its home spot
+    let tx = e.hx, ty = e.hy;
+    if (e.state === 'awake') {
+      if (Math.abs(P.x - e.x) < 30 && rnd() < dt * 0.4) e.side *= -1;
+      tx = P.x + e.side * 70; ty = P.y - 62;
+      const lx = tx - e.hx, ly = ty - e.hy, L = Math.hypot(lx, ly), leash = 230;
+      if (L > leash) { tx = e.hx + lx / L * leash; ty = e.hy + ly / L * leash; }
+      if (solidAt(tx, ty) || !los(tx, ty, P.x, P.y)) { tx = (tx + e.x) / 2; ty = Math.min(ty, e.y) - 10; }
+    }
+    const bob = Math.sin(e.t * 2.2) * 6;
+    const ax = (tx - e.x) * 1.6 - e.vx * 1.4, ay = (ty + bob - e.y) * 1.6 - e.vy * 1.4;
+    e.vx += ax * dt; e.vy += ay * dt;
+    const sp = Math.hypot(e.vx, e.vy), max = e.dash > 0 ? 260 : 60;
+    if (sp > max) { e.vx *= max / sp; e.vy *= max / sp; }
+    const nx = e.x + e.vx * dt, ny = e.y + e.vy * dt;
+    if (!solidAt(nx, ny) && !solidAt(nx, ny + 8)) { e.x = nx; e.y = ny; } else { e.vx *= -0.4; e.vy *= -0.4; }
+    if (e.state === 'awake') e.face = Math.sign(P.x - e.x) || e.face;
+    // dart away if a blast is about to land
+    if (e.dodgeCd <= 0) for (const t of S.toxins) {
+      const rx = e.x - t.x, ry = e.y - t.y, vv = t.vx * t.vx + t.vy * t.vy, tt = (rx * t.vx + ry * t.vy) / vv;
+      if (tt > 0 && tt < 0.3 && Math.hypot(rx - t.vx * tt, ry - t.vy * tt) < 13 && rnd() < 0.45 + G.prog * 0.35) {
+        const pdx = -t.vy, pdy = t.vx, pl = Math.hypot(pdx, pdy) || 1, s = rnd() < 0.5 ? -1 : 1;
+        e.vx = pdx / pl * 240 * s; e.vy = pdy / pl * 240 * s - 30; e.dash = 0.22; e.dodgeCd = 2.8; e.charge = 0; S.stats.ducks++; AU.puff();
+        e.ghost = { x: e.x, y: e.y, t: 0.3 };
+        break;
+      }
+    }
+    if (e.ghost) { e.ghost.t -= dt; if (e.ghost.t <= 0) e.ghost = null; }
+    if (e.state !== 'awake') { e.charge = 0; return; }
+    if (e.charge > 0) {                                     // pulls in tight, then flares out and lets go
+      e.charge -= dt;
+      if (e.charge <= 0) {
+        e.fire = 0.5; e.sq = 1; AU.volley(); S.stats.volleys++;
+        const above = Math.abs(P.x - e.x) < 26 && P.y > e.y;
+        if (above) {                                          // straight down, a curtain of spores
+          for (let k = -2; k <= 2; k++) spore(e.x + k * 3, e.y + 8, k * 26 + P.vx * 0.2, 40, { dmg: 7 });
+          S.stats.drops++;
+        } else {
+          const sol = aimAt(e.x, e.y + 6, P, 210);
+          if (sol) {
+            spore(e.x, e.y + 6, sol.vx, sol.vy, { dmg: 8 });
+            if (G.prog > 0.3) for (const k of [-1, 1]) spore(e.x, e.y + 6, sol.vx * (1 + k * 0.14), sol.vy * (1 - k * 0.08), { dmg: 7 });
+          }
+        }
+        e.cd = Math.max(1.2, 2.6 - G.prog * 1.0) + rnd() * 0.6;
+      }
+    } else if (e.cd <= 0 && sees && d < 240) { e.charge = 0.5; AU.charge(); }
+    if (e.fire > 0) e.fire -= dt;
+    if (rnd() < dt * 0.9) S.motes.push({ x: e.x + (rnd() - 0.5) * 12, y: e.y + 10 + rnd() * 6, vx: (rnd() - 0.5) * 4, vy: 6 + rnd() * 6, t: 0, life: 1 + rnd() });
+  }
+
+  /* burrowcap brain (hides, bursts out, strikes, dives back) */
+  const WORM_T = { emerge: 0.5, strike: 0.62, burrow: 0.45, hit: 0.22 };
+  function updateWorm(e, dt, P) {
+    e.t += dt; e.st += dt; e.cd -= dt; e.flash -= dt;
+    const dx = P.x - e.x, dy = P.y - e.gy;
+    const sense = Math.abs(dx) < 130 && dy > -70 && dy < 14 && los(e.x, e.gy - 6, P.x, P.y), near = sense && Math.abs(dx) < 48;
+    if (e.state === 'lurk') {
+      if (rnd() < dt * 0.6) S.motes.push({ x: e.x + (rnd() - 0.5) * 10, y: e.gy - 2, vx: 0, vy: -10, t: 0, life: 0.7 });   // the only warning u get
+      // it feels u through the soil and the mound creeps toward u
+      if (sense && e.cd <= 0 && Math.abs(dx) > 26) {
+        const nx = e.x + Math.sign(dx) * 26 * dt, ahead = nx + Math.sign(dx) * 8;
+        if (Math.abs(nx - e.hx) < 150 && solidAt(ahead, e.gy + 2) && !solidAt(ahead, e.gy - 4) && !waterAt(ahead, e.gy - 4)) {
+          e.x = nx; if (rnd() < dt * 10) burst(e.x, e.gy - 1, 1, { color: ['#75352f', '#914b2f'], speed: 40, life: 0.35, g: 300, angle: -Math.PI / 2, spread: 1.2 });
+        }
+      }
+      if (near && Math.abs(dx) < 34 && e.cd <= 0) {
+        e.state = 'emerge'; e.st = 0; e.face = Math.sign(dx) || 1; S.stats.ambushes++;
+        AU.burrow(); shake(0.16);
+        burst(e.x, e.gy - 2, 12, { color: ['#75352f', '#914b2f', '#46262b'], speed: 130, life: 0.6, g: 420, spread: 1.6 });
+      }
+      return;
+    }
+    if (e.state === 'emerge' && e.st > WORM_T.emerge) { e.state = 'up'; e.st = 0; e.strikes = 0; }
+    if (e.state === 'hit' && e.st > WORM_T.hit) { e.state = 'up'; e.st = 0; }
+    if (e.state === 'up') {
+      e.face = Math.sign(dx) || e.face;
+      if (Math.abs(dx) < 34 && Math.abs(dy) < 40 && e.st > 0.25) { e.state = 'strike'; e.st = 0; e.hitDone = false; AU.charge(); }
+      else { e.away += dt; if (e.away > (near ? 1.8 : 1.1)) { e.state = 'burrow'; e.st = 0; AU.burrow(); } }
+    }
+    if (e.state === 'strike') {
+      const f = e.st / WORM_T.strike * 8;
+      if (f >= 3 && f < 6 && !e.hitDone) {                  // the snap, head whips down in front of it
+        const [rx, ry] = f < 4 ? [21, 10] : f < 5 ? [25, 8] : [23, 9], hx = e.x + e.face * rx, hy = e.gy - ry;
+        if (Math.hypot(P.x - hx, P.y - hy) < 12) { e.hitDone = true; hurtPlayer(12, e.x, e.gy - 14); }
+        if (f >= 3 && !e.snapped) { e.snapped = true; AU.snap(); S.stats.strikes++; }
+      }
+      if (e.st > WORM_T.strike) { e.snapped = false; e.strikes++; e.state = e.strikes >= 2 ? 'burrow' : 'up'; e.st = 0; e.away = 0; if (e.state === 'burrow') AU.burrow(); }
+    }
+    if (e.state === 'burrow' && e.st > WORM_T.burrow) { e.state = 'lurk'; e.st = 0; e.cd = 0.9 + rnd() * 0.6; e.away = 0; }
+  }
+
   /* main update */
   function update(dt) {
     const b = G.ball, R = G.run;
@@ -291,9 +411,9 @@ window.makeCombat = function (A) {
     for (const e of S.enemies) {
       if (e.dead) continue;
       if (Math.abs(e.x - b.x) > 760 || Math.abs(e.y - b.y) > 520) continue;      // rivals that are far away just sleep
-      updateShroom(e, dt, P);
+      if (e.type === 'shroom') updateShroom(e, dt, P); else if (e.type === 'drift') updateDrift(e, dt, P); else updateWorm(e, dt, P);
       if (e.dead) continue;
-      // touching: stomp from above, otherwise it hurts
+      // touching: stomp from above, otherwise it hurts (u cant touch a worm thats hiding)
       const h = hitbox(e); if (!h) continue;
       const dx = b.x - h.x, dy = b.y - h.y;
       if (dx * dx + dy * dy < (h.r + PHYS_R) ** 2 && G.phase === 'play') {
@@ -301,8 +421,8 @@ window.makeCombat = function (A) {
           b.vy = -300; b.coyote = 0; b.slings = Math.max(b.slings || 0, 1);                 // bounce back, sling refilled
           AU.stomp(); fx('sparkB', b.x, b.y + 4, { sc: 0.8 }); damage(e, 1, 0, -60);
           e.sq = 1;
-        } else {
-          if (hurtPlayer(e.dmg || 10, h.x, h.y)) {
+        } else if (e.type !== 'worm' || e.state === 'strike') {
+          if (hurtPlayer(e.type === 'drift' ? 6 : (e.dmg || 10), h.x, h.y)) {
             if (R.thorns) damage(e, 1, -Math.sign(dx) * 120, -120);
             if (e.type === 'shroom') { e.recoil = 0.7; e.dir = Math.sign(dx) || 1; e.vx = -e.dir * 120; e.vy = -150; }
           }
@@ -332,7 +452,7 @@ window.makeCombat = function (A) {
       }
     }
     S.toxins = S.toxins.filter(t => t.life > 0);
-    // toxin clouds that hang around
+    // toxin clouds that hang around (good vs driftcaps that keep dodging)
     for (const c of S.clouds) {
       c.t += dt;
       for (const e of S.enemies) {
@@ -422,6 +542,26 @@ window.makeCombat = function (A) {
     else anim(c, 'sh_walk', Math.floor(e.t * 3) % 2 ? 0 : 3, e.x, foot, e.face);
     hpPips(c, e, e.x, e.y - 22);
   }
+  function drawDrift(c, e, t) {
+    glow(c, e.x, e.y - 2, 20 + (e.charge > 0 ? 10 * (1 - e.charge / 0.5) : 0), CAP, 0.4);
+    if (e.ghost) anim(c, 'dc_idle', 0, e.ghost.x, e.ghost.y, e.face, { alpha: e.ghost.t / 0.3 * 0.4 });
+    if (e.flash > 0) anim(c, 'dc_hit', 0, e.x, e.y, e.face, { flash: true });
+    else if (e.charge > 0) anim(c, 'dc_attack', (1 - e.charge / 0.5) * 3.9, e.x, e.y, e.face, { hold: true });
+    else if (e.fire > 0) anim(c, 'dc_attack', 4 + (0.5 - e.fire) * 8, e.x, e.y, e.face, { hold: true });
+    else anim(c, 'dc_idle', e.t * (e.state === 'dormant' ? 6 : 9), e.x, e.y, e.face);
+    hpPips(c, e, e.x, e.y - 16);
+  }
+  function drawWorm(c, e, t) {
+    const T = WORM_T, fl = e.flash > 0, o = { flash: fl };
+    if (e.state !== 'lurk') glow(c, e.x, e.gy - 16, 14, CAP, 0.3);
+    if (e.state === 'lurk') anim(c, 'wm_lurk', e.t * 4, e.x, e.gy, e.face);
+    else if (e.state === 'emerge') anim(c, 'wm_emerge', e.st / T.emerge * 6, e.x, e.gy, e.face, { hold: true, flash: fl });
+    else if (e.state === 'strike') anim(c, 'wm_strike', e.st / T.strike * 8, e.x, e.gy, e.face, { hold: true, flash: fl });
+    else if (e.state === 'burrow') anim(c, 'wm_burrow', e.st / T.burrow * 6, e.x, e.gy, e.face, { hold: true });
+    else if (e.state === 'hit') anim(c, 'wm_hit', 0, e.x, e.gy, e.face, o);
+    else anim(c, 'wm_idle', e.t * 8, e.x, e.gy, e.face, o);
+    if (e.state !== 'lurk') hpPips(c, e, e.x, e.gy - 32);
+  }
   function drawCorpses(c) {
     for (const k of S.corpses) {
       const M = MAN[k.anim]; if (!M) continue;
@@ -434,7 +574,7 @@ window.makeCombat = function (A) {
     drawCorpses(c);
     for (const e of S.enemies) {
       if (e.dead || Math.abs(e.x - cam.x - 320) > 380 || Math.abs(e.y - cam.y - 200) > 260) continue;
-      drawShroom(c, e, t);
+      if (e.type === 'shroom') drawShroom(c, e, t); else if (e.type === 'drift') drawDrift(c, e, t); else drawWorm(c, e, t);
     }
     for (const m of S.motes) { c.globalAlpha = Math.min(1, (m.life - m.t) * 2) * 0.8; px(c, m.x, m.y, m.t % 0.4 < 0.2 ? GLOW2 : GLOW); }
     c.globalAlpha = 1;
@@ -483,6 +623,6 @@ window.makeCombat = function (A) {
     c.globalAlpha = 1;
   }
 
-  return { anim, S, reset, update, fxTick, draw, drawReticle, blast, autoBlast, hurtPlayer, damage, makeShroom, simLeap };
+  return { anim, S, reset, update, fxTick, draw, drawReticle, blast, autoBlast, hurtPlayer, damage, makeShroom, makeDrift, makeWorm, simLeap };
 };
 })();

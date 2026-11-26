@@ -31,6 +31,8 @@ for (const n of only) {
     for (const f of c.flies) if (T(Math.floor(f.x / TS), Math.floor(f.y / TS)) !== '.') bad('firefly-in-terrain', f);
     for (const e of c.enemies) {
       if (e.type === 'shroom') { for (const [ox, oy] of [[-6, -6], [6, -6], [-6, 6], [6, 6], [0, 7]]) if (T(Math.floor((e.x + ox) / TS), Math.floor((e.y + oy - 1) / TS)) === '#') bad('shroom-in-terrain', e); if (T(Math.floor(e.x / TS), Math.floor((e.y + 9) / TS)) !== '#') bad('shroom-not-on-ground', e); }
+      else { if (T(Math.floor(e.x / TS), Math.floor(e.y / TS)) !== '#' || T(Math.floor(e.x / TS), Math.floor(e.y / TS) - 1) !== '.') bad(e.type + '-not-on-ground', e);   // driftcaps float over it, burrowcaps hide in it
+        if (e.type === 'worm') for (const d of [-1, 1]) if (T(Math.floor(e.x / TS) + d, Math.floor(e.y / TS)) !== '#') bad('worm-not-flat', e); }
     }
     // water: every water tile has to sit on soil or more water, with walls or water on both sides
     for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) {
