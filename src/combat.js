@@ -145,7 +145,7 @@ window.makeCombat = function (A) {
 
   /* stuff that touches the player */
   function hurtPlayer(dmg, fx0, fy0) {
-    if (G.phase !== 'play' || G.iframes > 0) return false;
+    if (G.phase !== 'play' || G.iframes > 0 || G.od > 0) return false;
     const R = G.run, b = G.ball, before = R.dna;
     R.dnaLag = Math.max(R.dnaLag, R.dnaShown);
     R.dna = elderActive() ? Math.max(Math.min(R.dna, 15), R.dna - dmg) : Math.max(0, R.dna - dmg);   // the elder wants u in one piece
@@ -546,7 +546,7 @@ window.makeCombat = function (A) {
       if (e.t < 0.45 && !e.under) e.x += Math.sign(dx) * Math.min(ad, 190 * dt);   // it lunges
       if (e.t > 0.45 && !e.did) {
         e.did = 1;
-        if ((Math.abs(b.x - e.x) < 38 && b.y > e.gy - 90 && b.y < e.gy + 10) || e.under) { if (e.hunt) devourAll(e); else engulf(e); return; }
+        if (((Math.abs(b.x - e.x) < 38 && b.y > e.gy - 90 && b.y < e.gy + 10) || e.under) && !(G.od > 0)) { if (e.hunt) devourAll(e); else engulf(e); return; }
         AU.slam(); shake(0.35);
       }
       if (e.t > EL_T.engulf) {
@@ -739,7 +739,8 @@ window.makeCombat = function (A) {
       const h = hitbox(e); if (!h) continue;
       const dx = b.x - h.x, dy = b.y - h.y;
       if (dx * dx + dy * dy < (h.r + PHYS_R) ** 2 && G.phase === 'play') {
-        if (b.vy > 60 && dy < -h.r * 0.3) {
+        if (G.od > 0) { damage(e, 999, -Math.sign(dx) * 220, -180); hitstop(0.05); }       // overdrive: anything you touch is gone
+        else if (b.vy > 60 && dy < -h.r * 0.3) {
           b.vy = -300; b.coyote = 0; b.slings = Math.max(b.slings || 0, 1);                 // bounce back, sling refilled
           AU.stomp(); fx('sparkB', b.x, b.y + 4, { sc: 0.8 }); fx('hitDir', b.x, b.y + 6, { sc: 0.6, rot: Math.PI / 2, speed: 30 }); damage(e, 1, 0, -60);
           e.sq = 1;

@@ -625,7 +625,7 @@ function startLevel(n) {
   G.lastSafe = { x: G.w.start.x, y: G.w.start.y }; G.safeT = 0; G.airT = 0;
   G.phase = 'play'; G.phaseT = 0; G.roomT = 0; G.particles = []; G.popups = []; G.fx = []; G.orbs = []; G.trail = [];
   G.aim = null; G.kbAim.on = false; G.state = 'play'; G.fade = 1; G.paused = false; G.secondWindUsed = false; G.roomSpores = 0;
-  G.bestD = 1e9; G.lostT = 0; G.oracle = null; G.oracleNext = G.fxMax ? 3.2 : 7; G.sprouts = []; G.cine = 0; G.cineText = null; G.facing = Math.sign(G.w.goal.x - G.w.start.x) || 1; G.askCd = 0;
+  G.bestD = 1e9; G.lostT = 0; G.od = 0; G.odSlow = 0; G.odTrail = []; G.oracle = null; G.oracleNext = G.fxMax ? 3.2 : 7; G.sprouts = []; G.cine = 0; G.cineText = null; G.facing = Math.sign(G.w.goal.x - G.w.start.x) || 1; G.askCd = 0;
   G.cam.x = G.ball.x - VW / 2; G.cam.y = G.ball.y - VH * 0.55;
   G.prog = n / (LEVELS - 1); CB.reset(); G.deadHold = 0; G.lockCam = false;
   chunkCache.clear();
@@ -845,6 +845,7 @@ function updateSprouts(dt) {
     const top = s.y - sproutH(s) - 5;
     if (G.phase === 'play' && s.t > 1.2 && b.vy > 40 && Math.abs(b.x - s.x) < 10 && b.y + PHYS.R > top - 2 && b.y + PHYS.R < top + 8) {
       b.y = top - PHYS.R; b.vy = -Math.max(380, b.vy * 0.75); s.sq = 1; AU.cap(); resetAirCharges();
+      if (!(G.od > 0) && G.time - (G.odAt || -99) > 6) { G.od = 3; G.odSlow = 0.7; G.odTrail = []; G.odAt = G.time; AU.reveal(); if (!G.run.rebounded) { G.run.rebounded = true; popup('Rebound', b.x, b.y - 24, '#7dff3a'); } }
       burst(s.x, top, 6, { color: ['#9ff4ff', '#e0fff8'], speed: 60, life: 0.4 });
     }
   }
@@ -872,6 +873,7 @@ function fixedUpdate(dt) {
   G.phaseT += dt;
   for (const p of w.pads) { if (p.grow < 1) p.grow = Math.min(1, p.grow + dt * 1.8); if (p.squish > 0) p.squish = Math.max(0, p.squish - dt * 3.5); }
   for (const c of w.caps) if (c.squish > 0) c.squish = Math.max(0, c.squish - dt * 3.5);
+  if (G.od > 0) G.od -= dt;
   if (G.phase === 'dead' && G.prevPhase !== 'dead') plantSprout(b.x, b.y - 4);
   G.prevPhase = G.phase; updateSprouts(dt); if (G.sproutMsg > 0) G.sproutMsg -= dt;
   R.dnaShown += (R.dna - R.dnaShown) * Math.min(1, dt * (R.dna > R.dnaShown ? 3 : 10));
@@ -971,6 +973,7 @@ function sink() {
 }
 function die(manual) { if (manual) { G.phase = 'dead'; G.phaseT = 0.45; AU.pop(); } }
 function respawn() {
+  G.od = 0; G.odSlow = 0;
   G.cine = 0; G.cineText = null;
   G.ball = makeBall(G.lastSafe.x, G.lastSafe.y); resetAirCharges(); G.iframes = 1.6;
   if (G.oracleNext > 1e8) G.oracleNext = G.roomT + 6;
@@ -1473,6 +1476,25 @@ function sporeSprite(rollQ, sqQ, lx, ly, eyes, mouth) {
   });
 }
 const PUFF_SPORES = ['#ffe6a8', '#f6ecd2', '#ffd27a'];
+const odTint = new WeakMap();
+function odHue(k) { const h = 190 + 160 * (0.5 - 0.5 * Math.cos(k)); return 'hsl(' + (h % 360) + ',70%,62%)'; }
+function tinted(spr, q) {          // a translucent colour-washed copy of Puff, 16 hue steps
+  let arr = odTint.get(spr); if (!arr) odTint.set(spr, arr = []);
+  if (!arr[q]) { const c = document.createElement('canvas'); c.width = spr.width; c.height = spr.height; const x = c.getContext('2d');
+    x.drawImage(spr, 0, 0); x.globalCompositeOperation = 'source-atop'; x.globalAlpha = 0.72; x.fillStyle = odHue(q / 16 * Math.PI * 2); x.fillRect(0, 0, c.width, c.height); arr[q] = c; }
+  return arr[q];
+}
+function drawOverdrive(b, spr, sqQ) {
+  const k = Math.min(1, G.od / 0.4), q = Math.floor((G.time * 1.6 % 1) * 16), oy = 8 + sqQ / 20 * 3;
+  const g = ctx.createRadialGradient(b.x, b.y, 2, b.x, b.y, 46);   // green glow fading into the level
+  g.addColorStop(0, `rgba(110,255,70,${0.42 * k})`); g.addColorStop(0.5, `rgba(80,220,60,${0.16 * k})`); g.addColorStop(1, 'rgba(60,200,50,0)');
+  ctx.fillStyle = g; ctx.fillRect(b.x - 46, b.y - 46, 92, 92);
+  const tr = G.odTrail || (G.odTrail = []);
+  if (!tr.length || G.time - tr[tr.length - 1].t > 0.05) tr.push({ x: b.x, y: b.y, s: spr, q, t: G.time, oy });
+  while (tr.length && G.time - tr[0].t > 0.32) tr.shift();
+  for (const e of tr) PK.blit(ctx, tinted(e.s, e.q), 8, e.oy, e.x, e.y, false, 1, Math.max(0, 0.55 - (G.time - e.t) * 1.7) * k);
+  PK.blit(ctx, tinted(spr, q), 8, oy, b.x, b.y, false, 1, 0.82);
+}
 function drawBall(b, t, alpha = 1) {
   const sp = Math.hypot(b.vx || 0, b.vy || 0), air = !b.grounded && sp > 120;
   const stretch = air ? Math.min(0.16, sp / 2800) : 0, sq = Math.max(-0.2, Math.min(0.25, (b.land || 0) * 0.25 - stretch));
@@ -1482,7 +1504,8 @@ function drawBall(b, t, alpha = 1) {
   const eyes = hurt ? 'hurt' : aiming ? 'aim' : (t % 3.3) < 0.12 ? 'blink' : 'open';
   const spr = sporeSprite(rollQ, sqQ, lx, ly, eyes, sp > 330 ? 'o' : '-');
   if (sp > 300 && alpha === 1 && G.state === 'play' && G.phase === 'play' && (G.time - (b.ghostT || 0)) > 0.025) { b.ghostT = G.time; VX.ghost(spr, 8, 8 + sqQ / 20 * 3, b.x, b.y, 0.4); }
-  PK.blit(ctx, spr, 8, 8 + sqQ / 20 * 3, b.x, b.y, false, 1, alpha);
+  if (G.od > 0 && alpha === 1) drawOverdrive(b, spr, sqQ);
+  else PK.blit(ctx, spr, 8, 8 + sqQ / 20 * 3, b.x, b.y, false, 1, alpha);
   // every landing puffs warm spores out the pore, otherwise a lazy lil wisp floats up
   const top = b.y - 5.9 * (1 - sq) - 1;
   if ((b.land || 0) > 0.35 && !b._puffed && G.state === 'play') { b._puffed = true; burst(b.x, top, 6, { color: PUFF_SPORES, speed: 45, life: 0.7, g: -30, angle: -Math.PI / 2, spread: 1.8 }); }
@@ -2112,7 +2135,8 @@ function frame(now) {
   const cur = G.state === 'play' && G.phase === 'play' && !G.touch && !G.paused ? 'none' : '';
   if (screen.style.cursor !== cur) screen.style.cursor = cur;   // the toxin reticle replaces the cursor in play
   const airAim = G.state === 'play' && G.phase === 'play' && (G.aim || G.kbAim.on) && G.ball && !grounded();
-  G.ts += ((airAim ? 0.3 : 1) - G.ts) * Math.min(1, dt * 14);
+  if (G.odSlow > 0 && !G.paused) G.odSlow -= dt;
+  G.ts += ((airAim ? 0.3 : G.odSlow > 0 ? 0.5 : 1) - G.ts) * Math.min(1, dt * 14);
   if (G.hitstop > 0 && !G.paused) G.hitstop -= dt;                    // freeze frames, a lil pause on big hits
   else if (G.state === 'play' && !G.paused && !G.photoFreeze) { acc += dt * G.ts; while (acc >= PHYS.DT) { fixedUpdate(PHYS.DT); acc -= PHYS.DT; if (G.state !== 'play') break; } }
   if (G.state === 'end') G.endT += dt;
