@@ -1032,7 +1032,7 @@ function startGarden() {
     const tx = slots[Math.floor((i + 0.5) / n * slots.length)], sy = ga(tx) * TS, ps = 0.75 + hash(i * 7 + 3) * 0.55, x = tx * TS + 8;
     w.pads.push({ x, sy, cx: x, cy: sy - 2 - 19 * (ps - 1), r: 21 * ps, scale: ps, grow: 0, squish: 0, delay: 0.8 + Math.abs(tx + 58) * 0.035 });
   }
-  G.garden = { peds: G.artifacts.map(i => ({ i, x: PEDESTALS[i] * TS + 8, y: ga(PEDESTALS[i]) * TS, near: 0 })), elder: { x: 55 * TS + 8, gy: ga(55) * TS }, done: false };
+  G.garden = { peds: G.artifacts.map(i => ({ i, x: PEDESTALS[i] * TS + 8, y: ga(PEDESTALS[i]) * TS, near: 0 })), elder: { x: -5 * TS + 8, gy: ga(-5) * TS, hug: 0, near: false, hugged: false }, petals: [], hearts: [], nameT: -1, done: false };
   window.GEN.loadAround(w, G.ball.x, G.ball.y, 3);
   resetAirCharges();
   VX.clear(); G.fade = 0; G.leaving = false; VX.iris(1, VW / 2, VH * 0.55, 1.2);
@@ -1049,7 +1049,28 @@ function gardenUpdate(dt) {
     if (near && !p.near) { const A = window.GEN.ARTIFACTS[window.GEN.STORY_MAP[p.i]]; AU.fly(); VX.sparkBurst(p.x, p.y - 26, 12, { col: A[2], speed: 140, life: 0.5, curve: 6 }); }
     p.near = near;
   }
-  if (Math.random() < dt * 1.2) burst(g.elder.x + 6 + Math.random() * 10, g.elder.gy - 60, 1, { color: ['#9db2f5', '#cddcff'], speed: 8, life: 2.4, g: -6 });   // its dreaming in spores
+  if (Math.random() < dt * 1.2) burst(g.elder.x + 6 + Math.random() * 10, g.elder.gy - 60, 1, { color: ['#9db2f5', '#cddcff'], speed: 8, life: 2.4, g: -6 });   // it dreams in spores
+  // hug the Elder: roll into it on the ground
+  const e = g.elder, near = Math.abs(b.x - e.x) < 30 && b.y > e.gy - 40;
+  if (near && !e.near && b.grounded && G.phase === 'play') {
+    e.hug = 1.6; b.vx *= 0.15; b.land = 1; AU.nice && AU.nice(); AU.grow();
+    for (let k = 0; k < 7; k++) g.hearts.push({ x: e.x - 10 + Math.random() * 20, y: e.gy - 40 - Math.random() * 14, vx: (Math.random() - 0.5) * 20, t: -k * 0.12 });
+    if (!e.hugged) popup('The Elder hugs you back.', e.x, e.gy - 86, '#ffc6df');
+    e.hugged = true;
+  }
+  if (near && b.grounded) e.near = true; else if (!near) e.near = false;
+  if (e.hug > 0) { e.hug -= dt; b.land = Math.max(b.land || 0, 0.5); }
+  for (const h of g.hearts) { h.t += dt; if (h.t > 0) { h.y -= 18 * dt; h.x += h.vx * dt + Math.sin(h.t * 5) * 0.2; } }
+  g.hearts = g.hearts.filter(h => h.t < 1.8);
+  // cherry petals drift off the great tree, and a few across the whole valley
+  const tx = w.goal.x, ty = w.goal.y + 26;
+  for (let k = 0; k < 3; k++) if (Math.random() < dt * (k ? 6 : 22)) {
+    const x = k ? G.cam.x + Math.random() * VW : tx + (Math.random() - 0.5) * 320, y = k ? G.cam.y - 10 : ty - 150 - Math.random() * 100;
+    g.petals.push({ x, y, vx: -8 - Math.random() * 14, vy: 14 + Math.random() * 12, ph: Math.random() * 6, t: 0, c: Math.random() < 0.3 ? '#fff0f6' : Math.random() < 0.6 ? '#ffc6df' : '#ec8fb8' });
+  }
+  for (const q of g.petals) { q.t += dt; q.ph += dt * 3; q.x += (q.vx + Math.sin(q.ph) * 16) * dt; q.y += q.vy * dt; }
+  g.petals = g.petals.filter(q => q.t < 9 && q.y < ty + 30);
+  if (g.nameT >= 0) g.nameT += dt;
 }
 const FINALE = 'You fell, and every time you fell, something grew. Look how much you grew. Bounce back, little spore. Always.';
 function gardenFinale() {
@@ -1059,6 +1080,8 @@ function gardenFinale() {
   b.vx = b.vy = 0; AU.holed(true); AU.oracle();
   VX.sparkBurst(g.x, g.y - 10, 60, { col: '#fff2cc', speed: 300, life: 1, curve: 6 }); VX.ring(g.x, g.y, 140, { flat: 1, speed: 220, col: '#d8ffd0' }); VX.kick(0.3);
   for (const p of G.w.pads) p.squish = 1;
+  G.garden.nameT = 0;
+  for (let k = 0; k < 40; k++) G.garden.petals.push({ x: g.x + (Math.random() - 0.5) * 60, y: g.y - 20, vx: (Math.random() - 0.5) * 160, vy: -40 - Math.random() * 90, ph: Math.random() * 6, t: 0, c: k % 3 ? '#ffc6df' : '#fff0f6' });
   const hi = FINALE.indexOf('Bounce back');
   G.oracle = { line: FINALE, hl: [hi, hi + 'Bounce back'.length], t: -0.2, dur: 1.2 + FINALE.length * 0.045 + 3, chars: 0 };
 }
@@ -1096,6 +1119,86 @@ function drawFigure(x, y, t) {
   ctx.restore();
   ctx.drawImage(figureCanvas, Math.round(x - 20), y - 66 + bob);
   for (let k = 0; k < 6; k++) { const a = t * 0.8 + k * 1.05, r = 24; ctx.fillStyle = k % 2 ? '#c9a2ff' : '#fff2cc'; ctx.fillRect(Math.round(x + Math.cos(a) * r), Math.round(y - 34 + Math.sin(a) * r * 0.45 + bob), 1, 1); }
+}
+/* the great cherry tree at the heart of the garden */
+let blossomCanvas = null;
+function buildBlossom() {
+  const W = 380, H = 290, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x2 = c.getContext('2d'), mask = new Uint8Array(W * H), put = (x, y, col) => { x2.fillStyle = col; x2.fillRect(x, y, 1, 1); };
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const BARK = ['#120b16', '#1f1422', '#2f1f30', '#46303f'], blooms = [];
+  function branch(x, y, a, len, wd, d) {
+    const steps = Math.ceil(len);
+    for (let i = 0; i < steps; i++) {
+      const k = i / steps, r = wd * (1 - k * 0.35), bx = x + Math.cos(a) * i, by = y + Math.sin(a) * i + Math.sin(k * 3 + d) * 1.5;
+      for (let oy = -r; oy <= r; oy++) for (let ox = -r; ox <= r; ox++) if (ox * ox + oy * oy <= r * r) {
+        const li = 0.5 - ox / (r + 0.01) * 0.4 - oy / (r + 0.01) * 0.15 + (((bx + ox) * 3 + (by + oy)) % 5 < 1 ? -0.2 : 0);
+        put(Math.round(bx + ox), Math.round(by + oy), BARK[Math.max(0, Math.min(3, Math.floor(li * 4)))]);
+      }
+    }
+    const ex = x + Math.cos(a) * len, ey = y + Math.sin(a) * len;
+    if (d === 0 || wd < 1.2) { blooms.push([ex, ey, 20 + rnd() * 14]); return; }
+    if (d < 3) blooms.push([ex, ey, 24 + rnd() * 12]);
+    const n = d > 3 ? 2 : 2 + (rnd() < 0.5 ? 1 : 0);
+    for (let i = 0; i < n; i++) branch(ex, ey, a + (i - (n - 1) / 2) * (0.55 + rnd() * 0.3) + (rnd() - 0.5) * 0.3, len * (0.68 + rnd() * 0.12), wd * 0.66, d - 1);
+  }
+  for (let r = 0; r < 14; r++) { const ox = (r - 6.5) * 3; branch(W / 2 + ox, H - 1, -Math.PI / 2 + ox * 0.03, 8, 2.5 + (6.5 - Math.abs(r - 6.5)) * 0.35, 0); }   // roots flare into the ground
+  blooms.length = 0;
+  branch(W / 2, H - 2, -Math.PI / 2, 84, 14, 5);
+  const P = ['#4a1f3c', '#7d3260', '#b5517f', '#e083ad', '#ffbcd9', '#fff0f6'];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let f = 0, lx = 0, ly = 0;
+    for (const [bx, by, br] of blooms) { const dx = x - bx, dy = y - by, u = 1 - (dx * dx + dy * dy) / (br * br); if (u > 0) { const q = u * u; f += q; lx -= dx * q / br; ly -= dy * q / br; } }
+    const n = hash((x >> 1) * 13.1 + (y >> 1) * 71.7) * 0.7 + hash(x * 3.7 + y * 19.3) * 0.3;
+    if (f < 0.12 + n * 0.25) continue;
+    mask[y * W + x] = 1;
+    const ll = Math.hypot(lx, ly) || 1, li = 0.3 + Math.min(0.3, f * 0.25) + (lx + ly) / ll * -0.05 - (ly / ll) * 0.2 - (lx / ll) * 0.12 + (n - 0.5) * 0.25 - (y / H) * 0.12;
+    put(x, y, P[Math.max(0, Math.min(5, Math.floor(li * 6)))]);
+  }
+  for (let x = 0; x < W; x++) for (let y = H - 2; y > 0; y--) if (mask[y * W + x] && !mask[(y + 1) * W + x] && hash(x * 5.3 + y) < 0.35) {    // blossoms hang off the underside
+    const L = 2 + Math.floor(hash(x * 1.7 + y * 3.1) * 9);
+    for (let k = 1; k <= L && y + k < H; k++) if (k % 3 !== 0 || k === L) put(x, y + k, k === L ? '#ffbcd9' : P[2 + (k & 1)]);
+  }
+  return c;
+}
+function drawBlossom(t) {
+  if (!blossomCanvas) blossomCanvas = buildBlossom();
+  const x = G.w.goal.x, y = G.w.goal.y + 26, k = G.garden.nameT >= 0 ? Math.min(1, G.garden.nameT / 2) : 0;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const [r, a] of [[170, 0.04], [120, 0.05], [80, 0.06]]) { ctx.globalAlpha = a * (1 + k + Math.sin(t * 0.8) * 0.2); ctx.fillStyle = '#ff8fc4'; VX.disc(ctx, x, y - 190, r * 1.3, 1); }
+  ctx.restore();
+  ctx.drawImage(blossomCanvas, Math.round(x - 190), y - 288);
+  for (let i = 0; i < 26; i++) {      // glints winking through the canopy
+    const a = hash(i * 9.3) * Math.PI * 2, r = 20 + hash(i * 4.1) * 140, gx = x + Math.cos(a) * r, gy = y - 200 + Math.sin(a) * r * 0.45, tw = Math.sin(t * 2 + i * 1.7);
+    if (tw > 0.6) { ctx.fillStyle = '#fffaf0'; ctx.globalAlpha = (tw - 0.6) * 2.5; ctx.fillRect(Math.round(gx), Math.round(gy), 1, 1); if (tw > 0.9) { ctx.fillRect(Math.round(gx) - 1, Math.round(gy), 3, 1); ctx.fillRect(Math.round(gx), Math.round(gy) - 1, 1, 3); } }
+  }
+  ctx.globalAlpha = 1;
+}
+const HEART = ['.##.##.', '#######', '.#####.', '..###..', '...#...'];
+function drawGardenFront(t) {
+  const g = G.garden, e = g.elder, b = G.ball;
+  for (const q of g.petals) { ctx.globalAlpha = Math.min(1, (9 - q.t) / 1.5); ctx.fillStyle = q.c; const fl = Math.sin(q.ph) > 0; ctx.fillRect(Math.round(q.x), Math.round(q.y), fl ? 2 : 1, fl ? 1 : 2); }
+  for (const h of g.hearts) if (h.t > 0) {
+    ctx.globalAlpha = Math.min(1, (1.8 - h.t) * 1.5); ctx.fillStyle = h.t < 0.2 ? '#fff0f6' : '#ff8fc4';
+    HEART.forEach((row, j) => { for (let i = 0; i < 7; i++) if (row[i] === '#') ctx.fillRect(Math.round(h.x) - 3 + i, Math.round(h.y) + j, 1, 1); });
+  }
+  ctx.globalAlpha = 1;
+  if (!e.hugged && Math.abs(b.x - e.x) < 110) {      // a little heart over the sleeper: go on
+    const a = Math.min(1, (110 - Math.abs(b.x - e.x)) / 40), hy = e.gy - 74 + Math.round(Math.sin(t * 3) * 2);
+    ctx.globalAlpha = a * 0.9; ctx.fillStyle = '#ffc6df';
+    HEART.forEach((row, j) => { for (let i = 0; i < 7; i++) if (row[i] === '#') ctx.fillRect(Math.round(e.x) - 3 + i, hy + j, 1, 1); });
+    ctx.globalAlpha = 1;
+  }
+  if (g.nameT > 2.2) {      // its name, at last
+    const n = 'Death', a = Math.min(1, (g.nameT - 2.2) / 1.2), shown = Math.min(n.length, Math.floor((g.nameT - 2.2) * 4) + 1);
+    ctx.globalAlpha = a; text(n.slice(0, shown), G.w.goal.x, G.w.goal.y - 76, 2, '#ffe6f2', 'center', '#4a1f3c'); ctx.globalAlpha = 1;
+  }
+}
+function gardenName() {
+  const g = G.garden; if (!G.w || !G.w.garden || !g || g.nameT < 0) return '???';
+  if (g.nameT < 1.6) return '???';
+  if (g.nameT < 2.2) return Array.from({ length: 5 }, (_, i) => 'DEATHdeath?#%'[Math.floor(hash(i + Math.floor(g.nameT * 20)) * 13)]).join('');
+  return 'Death';
 }
 function drawPedestal(p, t) {
   const A = window.GEN.ARTIFACTS[window.GEN.STORY_MAP[p.i]], x = p.x, y = p.y;
@@ -1356,7 +1459,7 @@ function drawOracle(t) {
   drawHooded(x + 10, y + 8, t);
   ctx.restore();
   ctx.globalAlpha = fin;
-  text('???', x + 68, y + 7, 1, '#c2bba8');
+  { const nm = gardenName(); text(nm, x + 68, y + 7, 1, nm === 'Death' ? '#ffc6df' : '#c2bba8'); }
   const shown = o.line.slice(0, o.chars);
   wrapText(o.line, bw - 78).reduce((acc, ln, i) => {
     const part = shown.slice(acc, acc + ln.length), ly = y + 21 + i * 11;
@@ -1877,6 +1980,7 @@ function worldLights() {
   for (const c of w.caps) L.push({ x: c.ox + 35, y: c.oy + 22, r: 62, col: '#6f8be0', p: 0.75 });
   for (const s of G.sprouts || []) if (s.t > 0.4) L.push({ x: s.x, y: s.y - 14, r: 30 + 18 * (G.bloomK || 0), col: '#9ff4ff', p: 0.7 });
   if (G.level < LEVELS) L.push({ x: w.goal.x, y: w.goal.y, r: 96, col: w.L.info.artifact[2], p: 1 });
+  if (w.garden) for (let k = 0; k < 4; k++) L.push({ x: w.goal.x + (k - 1.5) * 70, y: w.goal.y - 110 - (k % 2) * 30, r: 110, col: '#ff9fcf', p: 0.8 });
   for (const o of G.oracle ? [G.oracle] : []) if (o.x != null) L.push({ x: o.x, y: o.y, r: 50, col: '#c9a2ff', p: 0.8 });
   return L;
 }
@@ -1926,12 +2030,13 @@ function renderPlay(t, dt) {
   for (let gy = Math.floor(cam.y / CHUNK_PX); gy <= Math.floor((cam.y + VH + 100) / CHUNK_PX); gy++)
     for (let gx = Math.floor((cam.x - 140) / CHUNK_PX); gx <= Math.floor((cam.x + VW + 140) / CHUNK_PX); gx++)
       for (const [name, px, py] of L.chunk(gx, gy).deco) spr(ctx, name, px, py);
+  if (w.garden) drawBlossom(t);
   for (const [ccx, ccy, c] of vis) ctx.drawImage(c.terr, ccx * CHUNK_PX, ccy * CHUNK_PX - TS);
   drawFlora(t, false);
   for (const c of w.caps) if (Math.abs(c.ox - cam.x - VW / 2) < VW) drawCap(c);
   drawSprouts(t);
   w.flies.forEach((f, i) => { if (Math.abs(f.x - cam.x - VW / 2) < VW && Math.abs(f.y - cam.y - VH / 2) < VH) drawFly(f, t, i); });
-  if (w.garden) { const g = G.garden; for (const p of g.peds) drawPedestal(p, t); CB.anim(ctx, 'el_sleep', t * 3, g.elder.x, g.elder.gy, -1); drawFigure(w.goal.x, w.goal.y + 26, t); }
+  if (w.garden) { const g = G.garden; for (const p of g.peds) drawPedestal(p, t); const e = g.elder, sq = e.hug > 0 ? Math.sin(Math.min(1, (1.6 - e.hug) / 1.6) * Math.PI) * 0.06 : 0; ctx.save(); ctx.translate(e.x, e.gy); ctx.scale(1 + sq, 1 - sq); CB.anim(ctx, 'el_sleep', t * 3, 0, 0, -1); ctx.restore(); drawFigure(w.goal.x + 2, w.goal.y + 26, t); }
   else drawArtifact(w.goal, t, L.info, G.phase === 'cleared' ? Math.min(1, G.phaseT) : 0);
   for (const p of w.pads) drawPad(p);
   for (let i = 0; i < G.trail.length; i++) { ctx.globalAlpha = i / G.trail.length * 0.5; ctx.fillStyle = '#fff2cc'; ctx.fillRect(Math.round(G.trail[i].x), Math.round(G.trail[i].y), 1, 1); }
@@ -1948,6 +2053,7 @@ function renderPlay(t, dt) {
     }
   }
   drawFlora(t, true);
+  if (w.garden) drawGardenFront(t);
   drawSporeDrift(t, dt);
   for (const [ccx, ccy, c] of vis) ctx.drawImage(c.wat, ccx * CHUNK_PX, ccy * CHUNK_PX);
   if (G.phase === 'play' && (G.aim || G.kbAim.on)) drawAim(t);

@@ -102,8 +102,14 @@ window.makeCombat = function (A) {
     S.killed = new Set(); S.seen = new Set(); S.cd = 0; rings.length = 0;
     G.iframes = 0; G.shake = 0; G.dark = 0; G.darkT = 0; G.flashA = 0; G.hitstop = 0;
   }
+  // from level 4 the rivals come back mutated: bigger, tougher, faster
+  function mutate(e) {
+    if (e.type === 'mite') return;
+    e.hp = e.max = e.max + 1; if (e.dmg) e.dmg = Math.round(e.dmg * 1.25); if (e.spd) e.spd *= 1.15;
+  }
   function spawnFromQueue() {
     const q = W().spawnQ; if (!q || !q.length) return;
+    const n0 = S.enemies.length;
     for (const d of q.splice(0)) {
       if (S.killed.has(d.id) || S.seen.has(d.id)) continue;
       S.seen.add(d.id);
@@ -117,6 +123,7 @@ window.makeCombat = function (A) {
         for (let i = 0; i < n; i++) { const id = d.id + ':' + i; if (!S.killed.has(id)) S.enemies.push(makeMite(d.x + (i - n / 2) * 5, d.y, id)); }
       }
     }
+    if (G.level >= 3) for (let i = n0; i < S.enemies.length; i++) mutate(S.enemies[i]);
   }
   function makeShroom(x, y, id) {
     return { type: 'shroom', spd: 1, dmg: 10, id, x, y: y + 7 - 7, vx: 0, vy: 0, r: 7, hp: 3, max: 3,
@@ -868,7 +875,21 @@ window.makeCombat = function (A) {
     const x = c.getContext('2d'); x.drawImage(spr, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = '#ffffff'; x.fillRect(0, 0, c.width, c.height); return c;
   });
   /* draws frame f of an animation with its anchor at (x, y) */
+  // from level 4 the rivals are their mutated selves: one bigger sprite, animated by squash and bob
+  const MX_SKIP = /^(sh_puff|sh_die|wm_lurk|wm_emerge|wm_burrow|bl_burst|bl_die|mt_die|ln_die|dc_die)/;
+  function mutantAnim(c, name, f, x, y, face, o) {
+    const key = 'mx_' + name.slice(0, 2), M = MAN[key]; if (!M || MX_SKIP.test(name)) return false;
+    const spr = frame(key, 0); if (!spr) return false;
+    const ph = f * 0.9, act = /attack|charge|swell|strike|despawn|spawn/.test(name);
+    const sy = 1 + (act ? 0.12 : 0.05) * Math.sin(ph * (act ? 2.2 : 1)), sx = 2 - sy;
+    const flip = M[6] ? face > 0 : face < 0, img = o.flash ? white(spr) : spr;
+    c.save(); c.globalAlpha = o.alpha ?? 1;
+    c.translate(Math.round(x), Math.round(y)); c.scale((flip ? -1 : 1) * sx, sy);
+    c.drawImage(img, -M[4], -M[5]); c.restore();
+    return true;
+  }
   function anim(c, name, f, x, y, face, o = {}) {
+    if (G.level >= 3 && G.w && !G.w.garden && mutantAnim(c, name, f, x, y, face, o)) return;
     const M = MAN[name]; if (!M) return;
     const spr = frame(name, o.hold ? Math.min(M[3] - 1, f) : f); if (!spr) return;
     const flip = M[6] ? face > 0 : face < 0;

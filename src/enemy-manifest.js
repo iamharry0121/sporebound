@@ -40,4 +40,10 @@ window.ENEMY_MANIFEST = {
   ln_fire: ['lancer/fire.png', 26, 48, 4, 13, 46, 0],
   ln_hit: ['lancer/hit.png', 26, 48, 2, 13, 46, 0],
   ln_die: ['lancer/die.png', 26, 48, 6, 13, 46, 0],
+  mx_sh: ['mutant/sh.png', 33, 32, 1, 16, 32, 1],
+  mx_dc: ['mutant/dc.png', 27, 46, 1, 13, 16, 0],
+  mx_wm: ['mutant/wm.png', 33, 61, 1, 16, 61, 0],
+  mx_bl: ['mutant/bl.png', 28, 36, 1, 14, 36, 0],
+  mx_mt: ['mutant/mt.png', 18, 14, 1, 9, 14, 0],
+  mx_ln: ['mutant/ln.png', 23, 53, 1, 11, 53, 0],
 };
