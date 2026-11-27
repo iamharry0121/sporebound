@@ -2,7 +2,7 @@
 
 *every miss grows something*
 
-![Puff falls, a glowcap grows where he landed, and he bounces back off it](media/fall-grow-bounce.gif)
+![Puff rebounding around the Elder](media/hero.gif)
 
 You're Puff, a tiny spore working your way down through seven levels of a dark fungal world. Fling yourself from ledge to ledge, and when you miss (you will), a glowcap grows right where you fell. Bounce off it and try again.
 
@@ -13,6 +13,8 @@ Made solo for Hack Club's **Harvest** jam, theme *Bounce Back!*
 ## How to play
 
 Drag back and let go to fling. You get one more fling in mid-air, so a bad jump isn't the end. If you do fall, look for the glowcap you just grew.
+
+![Puff falls, a glowcap grows where he landed, and he bounces back off it](media/fall-grow-bounce.gif)
 
 | Key | Does |
 | --- | --- |
