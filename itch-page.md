@@ -2,35 +2,36 @@
 
 Paste the part under the line into the itch description. Put `media/hero.gif` right under the first line and the screenshots in the sidebar.
 
-Embed settings: 1280 × 800, fullscreen button on, mobile friendly on.
+Embed settings: 960 × 600, fullscreen button on, mobile friendly on (landscape).
 
 ---
 
 **Every miss grows something.**
 
-You're Puff, a tiny spore falling through seven levels of a dark fungal world. Fling from ledge to ledge, and when you miss, a glowcap grows where you fell. Bounce off it and try again.
+You're Puff, a tiny spore trying to make it down through seven levels of a pretty dark mushroom world. You fling yourself from ledge to ledge, and when you miss (trust me, you will), a glowcap grows right where you fell. Bounce off it and go again.
 
-**How to play**
+**Controls**
 
-- Drag back and let go to fling (you get one more in mid-air)
+- Drag back and let go to fling. You get one extra fling in the air too
 - A / D to roll, Space to hop
-- Click or E to blast toxin at rivals
-- Q to ask the hooded one which way to go
-- Esc to pause (fullscreen and effects settings are in there)
+- Click or E to blast toxin at anything trying to kill you
+- Q if you're lost, the hooded guy will point you the right way
+- R puts you back at your last safe spot
+- Esc pauses (fullscreen and effects settings are in there)
 
 Works on phones too.
 
 **What's in it**
 
 - 7 levels that get darker and harder the deeper you go
-- Glowcaps that light the cave back up the more you fall
-- Rebound: bounce off your own glowcap to slow time and leave afterimages behind
-- The Elder, who really doesn't want you to leave
+- The more you fall, the more the cave lights back up
+- The Elder. It really doesn't want you to leave
+- Dying can mutate you, so a bad fall can actually make you stronger
 - A garden at the end, grown from every fall in your run
-- Original soundtrack and sound effects
+- My own soundtrack and sound effects
 
 **Credits**
 
-Made by harry for Hack Club's Harvest jam (theme: Bounce Back!). Puff, the Elder, most of the creatures, the music and all the sound are mine. Swamp tiles and backgrounds by The Flavare, some effect sprites by unTied Games.
+Made by harry for Hack Club's Harvest jam (theme: Bounce Back!). Puff, the Elder, most of the creatures, the music and all the sounds are mine. The swamp tiles and backgrounds are by The Flavare, and some of the effect sprites are by unTied Games.
 
-Source code: https://github.com/iamharry0121/sporebound
+Source code's on GitHub: https://github.com/iamharry0121/sporebound
