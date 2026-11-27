@@ -208,8 +208,10 @@ const AU = {
     a.src = 'assets/music/a-moment-of-solace.' + (ogg ? 'ogg' : 'mp3');
     a.loop = true; a.preload = 'auto'; a.volume = 0; a.muted = this.muted;
     a.play().catch(() => { });
+    try { const c = this.ctx, src = c.createMediaElementSource(a); this.mf = c.createBiquadFilter(); this.mf.type = 'lowpass'; this.mf.frequency.value = 20000; src.connect(this.mf); this.mf.connect(c.destination); } catch (e) { this.mf = null; }
     this.fadeTo(this.MUSIC_VOL, 2.5);
   },
+  bloom(k) { if (this.mf) this.mf.frequency.setTargetAtTime(2600 + 19000 * k * k, this.ctx.currentTime, 0.6); },
   fadeTo(v, sec) {
     const a = this.track; if (!a) return;
     clearInterval(this.fadeTimer);
@@ -1873,14 +1875,14 @@ function worldLights() {
   for (const f of w.flies) if (!f.got) L.push({ x: f.x, y: f.y, r: 26, col: '#eaff8a', p: 0.75 });
   for (const p of w.pads) L.push({ x: p.cx, y: p.cy - 6, r: 46 * (p.scale || 1), col: '#9ff4ff', p: 0.8 });
   for (const c of w.caps) L.push({ x: c.ox + 35, y: c.oy + 22, r: 62, col: '#6f8be0', p: 0.75 });
-  for (const s of G.sprouts || []) if (s.t > 0.4) L.push({ x: s.x, y: s.y - 14, r: 30, col: '#9ff4ff', p: 0.7 });
+  for (const s of G.sprouts || []) if (s.t > 0.4) L.push({ x: s.x, y: s.y - 14, r: 30 + 18 * (G.bloomK || 0), col: '#9ff4ff', p: 0.7 });
   if (G.level < LEVELS) L.push({ x: w.goal.x, y: w.goal.y, r: 96, col: w.L.info.artifact[2], p: 1 });
   for (const o of G.oracle ? [G.oracle] : []) if (o.x != null) L.push({ x: o.x, y: o.y, r: 50, col: '#c9a2ff', p: 0.8 });
   return L;
 }
 function drawWorldLight(cx, cy) {
   const base = G.level >= LEVELS ? 0 : LEVEL_DARK[Math.min(LEVEL_DARK.length - 1, G.level)] || 0;
-  const amb = Math.max(base, (G.dark || 0) * 0.92);
+  const amb = Math.max(base * (1 - 0.4 * (G.bloomK || 0)), (G.dark || 0) * 0.92);
   VX.drawLight(cx, cy, worldLights(), amb, G.dark > 0.3 ? [8, 7, 15] : G.w.garden ? [12, 14, 26] : mood().night);
 }
 /* a fading streak of light behind Puff when he's moving fast */
@@ -1900,7 +1902,7 @@ function drawTrail(b, dt) {
 /* glowy spores floating around in the air, like the ones the blue caps drop */
 const SPORES = [];
 function drawSporeDrift(t, dt) {
-  const cam = G.cam, n = 64;
+  const cam = G.cam, n = 64 + Math.round(40 * (G.bloomK || 0));
   while (SPORES.length < n) SPORES.push({ x: cam.x + Math.random() * VW, y: cam.y + Math.random() * VH, vx: 4 + Math.random() * 6, vy: -3 - Math.random() * 5, ph: Math.random() * 9, big: Math.random() < 0.2 });
   for (const s of SPORES) {
     s.x += (s.vx + Math.sin(t * 0.7 + s.ph) * 4) * dt; s.y += (s.vy + Math.cos(t * 0.9 + s.ph) * 3) * dt;
@@ -1915,7 +1917,7 @@ function renderPlay(t, dt) {
   const w = G.w, L = w.L, cam = G.cam, cx = Math.round(cam.x), cy = Math.round(cam.y);
   drawWorldBackground(t);
   if (G.w.garden) drawGodRays(t, cam.x);
-  { const dpt = Math.max(G.level >= LEVELS ? 0 : LEVEL_DEPTH[Math.min(LEVEL_DEPTH.length - 1, G.level)], (G.dark || 0) * 0.85); if (dpt > 0) { const nc = G.w.garden ? [10, 9, 24] : mood().night; ctx.fillStyle = `rgba(${nc[0]},${nc[1]},${nc[2]},${dpt})`; ctx.fillRect(0, 0, VW, VH); } }
+  { const dpt = Math.max(G.level >= LEVELS ? 0 : LEVEL_DEPTH[Math.min(LEVEL_DEPTH.length - 1, G.level)], (G.dark || 0) * 0.85) * (1 - 0.35 * (G.bloomK || 0)); if (dpt > 0) { const nc = G.w.garden ? [10, 9, 24] : mood().night; ctx.fillStyle = `rgba(${nc[0]},${nc[1]},${nc[2]},${dpt})`; ctx.fillRect(0, 0, VW, VH); } }
   const [sx, sy] = VX.cameraOffset(t, dt);
   ctx.save(); ctx.translate(-cx + sx, -cy + sy);
   const vis = [];
@@ -1958,6 +1960,9 @@ function renderPlay(t, dt) {
   VX.draw(ctx, dt);
   ctx.restore();
   drawWorldLight(cx - sx, cy - sy);
+  { const tgt = G.w.garden ? 1 : Math.min(1, (G.sprouts || []).length / 5);      // every glowcap you've grown here brings the colour back
+    G.bloomK = (G.bloomK || 0) + (tgt - (G.bloomK || 0)) * Math.min(1, dt * 1.5); AU.bloom(G.bloomK);
+    if (G.bloomK > 0.02 && !G.w.garden) { ctx.globalCompositeOperation = 'soft-light'; ctx.globalAlpha = 0.4 * G.bloomK; ctx.fillStyle = mood().spore[1]; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; } }
   VX.drawVignette(Math.max(0.45 + Math.max(0, G.level) * 0.06, (G.dark || 0)));
   if (G.flashA > 0) { ctx.globalAlpha = G.fxMax ? Math.min(1, G.flashA) : Math.min(0.35, G.flashA * 0.5); ctx.fillStyle = G.flashCol || '#ffffff'; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1; G.flashA -= dt * 2.6; }
   if (G.aim) {
