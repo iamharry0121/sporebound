@@ -674,6 +674,7 @@ screen.addEventListener('pointerdown', e => {
   if (e.pointerType === 'touch') G.touch = true;
   try { screen.setPointerCapture(e.pointerId); } catch (_) { }
   const p = toGame(e);
+  if (G.state === 'title' && introK() < INTRO) { G.introSkip = true; return; }
   if (G.state === 'title') { if (ready()) { const i = menuHit(p); if (i >= 0) { G.menu = i; menuSelect(i); } } return; }
   if (G.state === 'end') { if (G.endT > 2.5) { AU.ui(); G.state = 'title'; } return; }
   if (G.state !== 'play') return;
@@ -732,6 +733,7 @@ window.addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.code === 'KeyM') { AU.setMute(!AU.muted); return; }
   const go = e.code === 'Space' || e.code === 'Enter';
+  if (G.state === 'title' && introK() < INTRO) { G.introSkip = true; return; }
   if (G.state === 'title') {
     if (!ready()) return;
     const n = MENU().length;
@@ -806,6 +808,8 @@ function fling(vx, vy, p) {
 }
 function hop() {
   const b = G.ball;
+  if (b.coyote <= 0 && !(b.jumps > 0)) { G.hopBuf = 0.12; return; }
+  G.hopBuf = 0;
   if (b.coyote > 0) {
     b.vy = Math.min(b.vy, -PHYS.HOP); b.coyote = 0; AU.hop();
     burst(b.x, b.y + 4, 5, { color: ['#c8b89a', '#8a7a62'], speed: 40, life: 0.35, g: 150 });
@@ -824,7 +828,7 @@ function burst(x, y, n, o = {}) {
       g: o.g == null ? 200 : o.g, color: o.color[(Math.random() * o.color.length) | 0], size: o.size || 1 });
   }
 }
-function plantSprout(x, y) {
+function plantSprout(x, y, count) {
   if (!G.w || G.w.garden) return;
   const tx = Math.floor(x / TS);
   for (let ty = Math.floor(y / TS); ty < Math.floor(y / TS) + 14; ty++) {
@@ -833,6 +837,7 @@ function plantSprout(x, y) {
       if (t === '#' && tileAt(G.w, tx, ty - 1) !== '.' ) return;
       const sp = G.sprouts || (G.sprouts = []);
       sp.push({ x: tx * TS + 8, y: ty * TS, t: 0, sq: 0, water: t === '~' }); if (sp.length > 8) sp.shift();
+      if (count) { G.run.spores++; G.sporePop = 1; }
       if (!G.run.sprouted) { G.run.sprouted = true; G.sproutMsg = 2.5; }
       return;
     }
@@ -852,8 +857,8 @@ function updateSprouts(dt) {
 }
 function dot(x, y, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); }
 function sproutH(s) { const k = Math.min(1, Math.max(0, (s.t - 0.4) / 0.8)); return Math.round(12 * (1 + 2.7 * Math.pow(k - 1, 3) + 1.7 * Math.pow(k - 1, 2))); }
-function drawSprouts(t) {
-  for (const s of G.sprouts || []) {
+function drawSprouts(t, list) {
+  for (const s of list || G.sprouts || []) {
     if (s.t < 0.4) { if (Math.random() < 0.5) dot(s.x + (Math.random() - 0.5) * 6, s.y - Math.random() * 6, '#9ff4ff'); continue; }
     const h = sproutH(s), sq = Math.sin(s.sq * Math.PI) * s.sq, w = Math.round(7 * (1 + sq * 0.3)), top = s.y - h;
     ctx.fillStyle = '#c8d8c8'; ctx.fillRect(s.x - 1, top, 2, h);
@@ -874,7 +879,7 @@ function fixedUpdate(dt) {
   for (const p of w.pads) { if (p.grow < 1) p.grow = Math.min(1, p.grow + dt * 1.8); if (p.squish > 0) p.squish = Math.max(0, p.squish - dt * 3.5); }
   for (const c of w.caps) if (c.squish > 0) c.squish = Math.max(0, c.squish - dt * 3.5);
   if (G.od > 0) G.od -= dt;
-  if (G.phase === 'dead' && G.prevPhase !== 'dead') plantSprout(b.x, b.y - 4);
+  if (G.phase === 'dead' && G.prevPhase !== 'dead') plantSprout(b.x, b.y - 4, true);
   G.prevPhase = G.phase; updateSprouts(dt); if (G.sproutMsg > 0) G.sproutMsg -= dt;
   R.dnaShown += (R.dna - R.dnaShown) * Math.min(1, dt * (R.dna > R.dnaShown ? 3 : 10));
   if (R.dnaLag > R.dnaShown) R.dnaLag = Math.max(R.dnaShown, R.dnaLag - 40 * dt); else R.dnaLag = R.dnaShown;
@@ -905,6 +910,7 @@ function fixedUpdate(dt) {
     b.t = 0; b.ctl = true;
     const r = stepBall(w, b, dt, ev);
     if (!canSling()) { G.kbAim.on = false; if (G.aim) G.aim = null; }
+    if (G.hopBuf > 0) { G.hopBuf -= dt; if (b.grounded && !wasGround) hop(); }
     if (b.grounded) { resetAirCharges(); if (!wasGround && preVy > 300) { fx('dust', b.x, b.y + 3, { sc: 0.7 }); } }
     if (!wasGround && b.grounded && preVy > 110) {
       b.land = Math.min(1, preVy / 420);
@@ -961,7 +967,7 @@ function sink() {
   let cost = Math.round(25 * R.splashCost);
   if (R.secondWind && !G.secondWindUsed) { G.secondWindUsed = true; cost = 0; popup('Second wind!', b.x, sy - 26, '#ffb0c8'); }
   if (cost > 0) { const was = R.dna; R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = Math.max(0, R.dna - cost); CB.noteLoss(was - R.dna); AU.dnaLoss(); popup(`-${cost} DNA`, G.cam.x + DNA.x + 34, G.cam.y + dnaFillTop(), '#ffb0b0'); }
-  R.spores++; G.roomSpores++;
+  R.spores++; G.roomSpores++; G.sporePop = 1; plantSprout(b.x, sy - 4);
   sendSpore(b.x - G.cam.x, sy - G.cam.y);
   if (R.undertow && R.dna > 0) {                           // the water throws you back out
     AU.pad(1);
@@ -986,7 +992,7 @@ function lostInDark() {
   if (R.secondWind && !G.secondWindUsed) { G.secondWindUsed = true; cost = 0; }
   const was = R.dna; R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = Math.max(0, R.dna - cost); CB.noteLoss(was - R.dna); if (cost) AU.dnaLoss();
   popup(cost ? `The dark took ${cost} DNA` : 'Second wind!', G.ball.x, G.ball.y - 20, cost ? '#b0b8ff' : '#ffb0c8');
-  R.spores++; G.roomSpores++;
+  R.spores++; G.roomSpores++; G.sporePop = 1;
   G.phase = 'dead'; G.phaseT = 0.45;
 }
 function artifactFound() {
@@ -1969,7 +1975,12 @@ function renderPlay(t, dt) {
   const altS = (alt > 0 ? '+' : '') + alt + 'm';
   const sw = 190; pill(VW - sw - 6, 4, sw);
   ctx.drawImage(IMG.tp, SPR.glow[0], SPR.glow[1], SPR.glow[2], SPR.glow[3], VW - sw + 2, 5, 14, 11);
-  text(String(G.run.spores), VW - sw + 19, 7, 1, '#9ff4ff');
+  if (G.sporePop > 0) {              // the counter pops whenever a fall grows something
+    G.sporePop = Math.max(0, G.sporePop - dt * 1.2); const k = G.sporePop;
+    ctx.globalAlpha = k * 0.6; ctx.fillStyle = '#9ff4ff'; VX.disc(ctx, VW - sw + 9, 10, 4 + (1 - k) * 10); ctx.globalAlpha = 1;
+    if (k > 0.3) text('+1', VW - sw + 30, 22 - (1 - k) * 10, 1, '#9ff4ff');
+  }
+  text(String(G.run.spores), VW - sw + 19, 7, 1, G.sporePop > 0.5 ? '#ffffff' : '#9ff4ff');
   ctx.fillStyle = '#eaff8a'; ctx.fillRect(VW - sw + 40, 10, 2, 2); ctx.globalAlpha = 0.4; ctx.fillRect(VW - sw + 39, 9, 4, 4); ctx.globalAlpha = 1;
   text(String(G.flies), VW - sw + 46, 7, 1, '#eaff8a');
   text(altS, VW - sw + 70, 7, 1, alt < 0 ? '#9fb8ff' : '#ffe9a8');
@@ -2056,7 +2067,24 @@ function drawLogo(t, y0, sc = 5, cx = VW / 2, tag = 2) {
   }
   text('every miss grows something', cx, y0 + 54 * sc / 5, tag, '#c8ffb0', 'center');
 }
+const INTRO = 3.4;
+function introK() { if (G.introSkip) return 99; if (!ready()) return 0; if (G.introAt == null) G.introAt = performance.now(); return (performance.now() - G.introAt) / 1000; }
+function renderIntro(k) {      // cold open: puff drops out of the dark, lands, and something grows where he hit
+  ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, VW, VH);
+  const wy = 300, gy = wy - 7, x = VW / 2, tl = 0.9;
+  ctx.globalAlpha = Math.min(1, k / 0.6);
+  for (let gx = 0; gx < VW; gx += TS) { ctx.drawImage(IMG.tp, 4 * TS, 8 * TS, TS, TS, gx, wy, TS, TS); for (let y = wy + TS; y < VH; y += TS) ctx.drawImage(IMG.tp, 5 * TS, 8 * TS, TS, TS, gx, y, TS, TS); }
+  const grad = ctx.createRadialGradient(x, wy, 10, x, wy, 260); grad.addColorStop(0, 'rgba(5,7,10,0)'); grad.addColorStop(1, 'rgba(5,7,10,1)');
+  ctx.globalAlpha = 1; ctx.fillStyle = grad; ctx.fillRect(0, 0, VW, VH);
+  const fall = Math.min(k, tl), y = -20 + (gy + 20) * (fall / tl) ** 2, land = k > tl ? Math.max(0, 1 - (k - tl) * 4) : 0;
+  if (k > tl && !G.introLanded) { G.introLanded = true; if (AU.ctx) AU.hit('ground', 500); }
+  if (k > tl + 0.15) drawSprouts(k, [{ x: x + 16, y: wy, t: k - tl - 0.15, sq: 0 }]);
+  drawBall({ x, y, vx: 0, vy: k < tl ? 400 : 0, roll: 0, land }, k);
+  if (k > tl + 1.1) { ctx.globalAlpha = Math.min(1, (k - tl - 1.1) * 1.5); drawLogo(k, 60); ctx.globalAlpha = 1; }
+  if (k > 0.5) text(G.touch ? 'tap to skip' : 'any key to skip', VW - 10, VH - 14, 1, '#3a4a4a', 'right');
+}
 function renderTitle(t) {
+  { const k = introK(); if (k < INTRO) { renderIntro(k); return; } if (k < INTRO + 0.5 && !G.introSkip) G.introFade = 1 - (k - INTRO) / 0.5; else G.introFade = 0; }
   drawBackground(0, t, VW / 2 + Math.sin(t * 0.2) * 200);
   ctx.fillStyle = 'rgba(10,24,26,0.25)'; ctx.fillRect(0, 0, VW, VH);
   const wy = 340;
@@ -2079,6 +2107,7 @@ function renderTitle(t) {
   if (G.best) text(`Best story run: ${fmtTime(G.best.time)}  -  ${G.best.spores} spore${G.best.spores === 1 ? '' : 's'}`, VW / 2, 148 + items.length * 26 + 6, 1, '#ffe9a8', 'center');
   text(G.touch ? 'Buttons roll and hop  -  drag anywhere to fling  -  tap to blast toxin' : 'A/D roll  -  Space hop  -  drag to fling  -  click or E: toxin  -  Q listen  -  M mute', VW / 2, 361, 1, MEM.text, 'center');
   text(CREDIT_LINE, VW / 2, 386, 1, MEM.dim, 'center');
+  if (G.introFade > 0) { ctx.fillStyle = `rgba(5,7,10,${G.introFade})`; ctx.fillRect(0, 0, VW, VH); }
 }
 function menuHit(p) { const n = MENU().length; for (let i = 0; i < n; i++) { const y = 148 + i * 26; if (p.x > VW / 2 - 130 && p.x < VW / 2 + 130 && p.y > y && p.y < y + 20) return i; } return -1; }
 
