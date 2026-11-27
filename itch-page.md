@@ -1,6 +1,6 @@
 # Sporebound: itch.io page text
 
-Paste the part under the line into the itch description. Put `media/fall-grow-bounce.gif` right under the first line and the screenshots in the sidebar.
+Paste the part under the line into the itch description. Put `media/hero.gif` right under the first line and the screenshots in the sidebar.
 
 Embed settings: 1280 × 800, fullscreen button on, mobile friendly on.
 

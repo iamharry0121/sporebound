@@ -14,8 +14,6 @@ Made solo for Hack Club's **Harvest** jam, theme *Bounce Back!*
 
 Drag back and let go to fling. You get one more fling in mid-air, so a bad jump isn't the end. If you do fall, look for the glowcap you just grew.
 
-![Puff falls, a glowcap grows where he landed, and he bounces back off it](media/fall-grow-bounce.gif)
-
 | Key | Does |
 | --- | --- |
 | Drag + release | Fling (works in mid-air too) |
