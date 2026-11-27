@@ -2,7 +2,7 @@
 
 *every miss grows something*
 
-![Puff rebounding around the Elder](media/hero.gif)
+![Puff dodging the Elder and blasting toxin at its rivals](media/hero.gif)
 
 You're Puff, a tiny spore working your way down through seven levels of a dark fungal world. Fling yourself from ledge to ledge, and when you miss (you will), a glowcap grows right where you fell. Bounce off it and try again.
 
