@@ -28,6 +28,8 @@ window.makeCombat = function (A) {
     roar() { const t = this.now(); this.tone(70, t, 1.1, { type: 'sawtooth', gain: 0.08, glide: 44, attack: 0.05 }); this.tone(104, t, 1.0, { type: 'triangle', gain: 0.08, glide: 66 }); this.tone(157, t + 0.05, 0.9, { type: 'sawtooth', gain: 0.03, glide: 90 }); this.noise(t, 1.0, { gain: 0.14, freq: 300, sweep: 110 }); },
     volley() { const t = this.now(); this.noise(t, 0.2, { gain: 0.08, freq: 1500, sweep: 400, type: 'bandpass', q: 2 }); this.tone(240, t, 0.2, { type: 'triangle', gain: 0.06, glide: 600 }); },
     slam() { const t = this.now(); this.noise(t, 0.5, { gain: 0.2, freq: 220, sweep: 60 }); this.tone(48, t, 0.5, { type: 'triangle', gain: 0.16, glide: 30 }); },
+    swell() { this.charge(); }, lanceCharge() { this.charge(); }, lance() { this.snap(); this.volley(); }, burst() { this.slam(); },
+    cardPick() { this.ui(); }, miteHop() { }, miteDie() { this.rivalDie(); }, devour() { this.engulf(); }, stalk() { this.rumble(); }, hunt() { this.roar(); }, lost() { },
     engulf() { const t = this.now(); this.noise(t, 0.6, { gain: 0.16, freq: 500, sweep: 80 }); this.tone(220, t, 0.7, { type: 'triangle', gain: 0.08, glide: 55 }); },
   });
 
@@ -179,7 +181,7 @@ window.makeCombat = function (A) {
   function kill(e) {
     e.dead = true; S.kills++; G.kills = S.kills;
     S.killed.add(e.id);
-    AU.rivalDie(); shake(0.14); hitstop(0.07);
+    if (e.type === 'mite') AU.miteDie(); else AU.rivalDie(); shake(0.14); hitstop(0.07);
     const h = hitbox(e) || { x: e.x, y: e.y };
     fx('popB', h.x, h.y, { sc: 1, speed: 26 }); ring(h.x, h.y, 22, { speed: 140 });
     const tn = TINT[e.type] || TINT.blue;
@@ -202,7 +204,7 @@ window.makeCombat = function (A) {
     if (e.popped) return; e.popped = true;
     const x = e.x, y = e.y - 3;
     S.pops.push({ x, y, t: 0, life: 0.9, r: 34, hitP: false, hit: new Set([e]) });
-    AU.slam(); shake(0.2); ring(x, y, 36, { speed: 170, col: '#ffb35c' }); ring(x, y, 24, { speed: 110, col: '#ffe2a8' });
+    AU.burst(); shake(0.2); ring(x, y, 36, { speed: 170, col: '#ffb35c' }); ring(x, y, 24, { speed: 110, col: '#ffe2a8' });
     VX.sparkBurst(x, y, 22, { col: '#ffb35c', speed: 260, life: 0.45 });
     burst(x, y, 24, { color: ['#ffb35c', '#ffe2a8', '#a8562f', '#663832'], speed: 150, life: 0.8, g: 60 });
   }
@@ -557,7 +559,7 @@ window.makeCombat = function (A) {
   function devourAll(e) {
     const R = G.run, b = G.ball, n = R.order.length;
     R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = 0; R.spores++; G.roomSpores++;
-    AU.engulf(); AU.dnaLoss(); shake(0.7); hitstop(0.2); flash(0.7, '#0a0912');
+    AU.devour(); AU.dnaLoss(); shake(0.7); hitstop(0.2); flash(0.7, '#0a0912');
     fx('popB', b.x, b.y, { sc: 1.4, speed: 22 }); ring(b.x, b.y, 70, { speed: 170 }); VX.sparkBurst(b.x, b.y, 44, { col: '#fff2cc', speed: 300, life: 0.8, curve: 6 }); VX.kick(0.8);
     burst(b.x, b.y, 26, { color: [DEEP, '#fff2cc', GLOW], speed: 130, life: 0.8 });
     popup(n ? `It ate every mutation (${n})` : 'It ate everything you were', b.x, b.y - 22, '#ff9aa8');
@@ -591,7 +593,7 @@ window.makeCombat = function (A) {
   function endStalk(msg) {
     const st = S.stalk; st.state = 'done'; G.darkT = 0;
     G.oracleNext = G.roomT + 8;
-    if (msg) popup(msg, G.ball.x, G.ball.y - 30, '#c2bba8');
+    if (msg) { popup(msg, G.ball.x, G.ball.y - 30, '#c2bba8'); AU.lost(); }
   }
   function updateStalk(dt) {
     const st = S.stalk; if (!st || st.at == null || st.state === 'done') return;
@@ -599,7 +601,7 @@ window.makeCombat = function (A) {
     if (st.state === 'idle') {
       if (G.roomT > st.at && G.phase === 'play' && !S.elder) {
         st.state = 'stalk'; st.t = 0; st.lost = 0;
-        AU.rumble(); shake(0.3); G.darkT = 0.35; whisper(STALK_LINE);
+        AU.stalk(); shake(0.3); G.darkT = 0.35; whisper(STALK_LINE);
       }
       return;
     }
@@ -607,7 +609,7 @@ window.makeCombat = function (A) {
       st.pulse -= dt; if (st.pulse <= 0) { st.pulse = 4 + rnd() * 2; AU.rumble(); shake(0.15); }   // it's under you somewhere
       if (st.lost >= STALK_LOSS && G.phase === 'play' && spawnElder()) {
         st.state = 'hunt'; st.t = 0; S.elder.hunt = true; G.darkT = 1;
-        popup('RUN', G.ball.x, G.ball.y - 34, '#ff9aa8');
+        popup('RUN', G.ball.x, G.ball.y - 34, '#ff9aa8'); AU.hunt();
       } else if (st.t > STALK_T) endStalk('It lost your trail.');
       return;
     }
@@ -633,7 +635,7 @@ window.makeCombat = function (A) {
     } else {
       if (e.state === 'wander' && sees) e.state = 'chase';
       if (e.state === 'chase' && d > 260) e.state = 'wander';
-      if (e.state === 'chase' && d < 30) { e.state = 'swell'; e.st = 0; AU.charge(); e.face = Math.sign(dx) || e.face; }
+      if (e.state === 'chase' && d < 30) { e.state = 'swell'; e.st = 0; AU.swell(); e.face = Math.sign(dx) || e.face; }
       if (e.state === 'chase') e.dir = Math.sign(dx) || e.dir;
       else if ((e.turn -= dt) < 0) { e.dir *= -1; e.turn = 1.5 + rnd() * 2.5; }
       if (e.state !== 'swell' && e.ground) {
@@ -656,6 +658,7 @@ window.makeCombat = function (A) {
       e.vx = dir * (hot ? 70 + rnd() * 50 : 30 + rnd() * 20);
       e.vy = hot ? -170 - rnd() * 90 - Math.max(0, e.y - P.y) * 0.8 : -110 - rnd() * 40;
       e.face = dir; e.sq = 1; e.cd = hot ? 0.35 + rnd() * 0.4 : 0.8 + rnd() * 1.2;
+      if (hot && rnd() < 0.5) AU.miteHop();
     }
     moveBody(e, dt);
     if (e.ground) e.vx *= Math.pow(0.0001, dt);
@@ -668,14 +671,14 @@ window.makeCombat = function (A) {
     e.face = Math.sign(P.x - e.x) || e.face;
     if (scared) { e.state = 'idle'; e.aim = null; e.cd = 1; return; }
     if (e.state === 'idle') {
-      if (sees && e.cd <= 0) { e.state = 'charge'; e.st = 0; AU.charge(); }
+      if (sees && e.cd <= 0) { e.state = 'charge'; e.st = 0; AU.lanceCharge(); }
     } else if (e.state === 'charge') {
       if (e.st < LANCE_T - LANCE_LOCK) e.aim = { x: P.x + P.vx * 0.12, y: P.y + P.vy * 0.06 };   // the line follows you, then freezes: move!
       if (!sees && e.st < LANCE_T - LANCE_LOCK) { e.state = 'idle'; e.cd = 0.6; e.aim = null; }
       else if (e.st > LANCE_T) {
         const ax = e.aim.x - mx, ay = e.aim.y - my, L = Math.hypot(ax, ay) || 1;
         spore(mx + ax / L * 6, my + ay / L * 6, ax / L * LANCE_SPEED, ay / L * LANCE_SPEED, { g: 0, life: 1.6, dmg: 9, r: 3, kind: 'lance' });
-        AU.snap(); AU.volley(); VX.sparkBurst(mx, my, 6, { angle: Math.atan2(ay, ax), spread: 0.6, speed: 200, col: '#8ff0c0', life: 0.2 });
+        AU.lance(); VX.sparkBurst(mx, my, 6, { angle: Math.atan2(ay, ax), spread: 0.6, speed: 200, col: '#8ff0c0', life: 0.2 });
         e.state = 'fire'; e.st = 0; e.aim = null; e.sq = 1;
       }
     } else if (e.state === 'fire') { if (e.st > 0.4) { e.state = 'idle'; e.cd = 1.6 + rnd() * 0.8; } }

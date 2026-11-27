@@ -5,7 +5,7 @@ const { VW, VH, TS, COLS, ROWS, PHYS, SPR, HOLES, makeWorld, makeBall, stepBall,
 
 /* loading the images */
 const IMG = {};
-const FILES = { tp: 'Terrain_and_Props.png', bg1: 'BG_1.png', bg2: 'BG_2.png', bg3: 'BG_3.png', bg3alt: 'BG_3_alt.png' };
+const FILES = { tp: 'world/Terrain_and_Props.png', bg1: 'world/BG_1.png', bg2: 'world/BG_2.png', bg3: 'world/BG_3.png', bg3alt: 'world/BG_3_alt.png' };
 for (const k in (window.FX_MANIFEST || {})) FILES['fx_' + k] = window.FX_MANIFEST[k].file;
 for (const k in (window.ENEMY_MANIFEST || {})) FILES['en_' + k] = 'enemies/' + window.ENEMY_MANIFEST[k][0];
 let loaded = 0, loadError = null;
@@ -133,6 +133,19 @@ function pixelText(s, x, y, sc, color, align, shadow) {
 
 /* audio. every sound effect is made with web audio, plus the background track */
 const mtof = n => 440 * Math.pow(2, (n - 69) / 12);
+const SFX = {
+  shoot: ['fling', p => ({ gain: 0.42 + p * 0.2, rate: 0.92 + p * 0.16 })], hit: [['land_1', 'land_2', 'land_3'], (k, v) => ({ gain: Math.min(0.4, 0.08 + v / 900) })],
+  pad: ['boing', c => ({ gain: 0.3, rate: 1 + Math.min(8, c) * 0.06 })], cap: ['boing', { gain: 0.3, rate: 0.9 }], splash: ['splash', { gain: 0.35 }],
+  holed: ['holed', { gain: 0.4 }], dnaLoss: ['dna_loss', { gain: 0.3 }], reveal: ['reveal', { gain: 0.4 }], mutate: ['mutate', { gain: 0.35 }],
+  reborn: ['reborn', { gain: 0.4 }], hop: ['hop', { gain: 0.25 }], murmur: ['murmur', { gain: 0.15 }], pop: ['pop', { gain: 0.35 }],
+  tick: ['tick', { gain: 0.12 }], ui: ['ui', { gain: 0.25 }],
+  blast: ['blast', { gain: 0.3 }], rivalHurt: ['rival_hurt', { gain: 0.3 }], rivalDie: ['rival_die', { gain: 0.35 }], ouch: ['ouch', { gain: 0.35 }],
+  stomp: ['stomp', { gain: 0.35 }], puff: ['spit', { gain: 0.25 }], volley: ['volley', { gain: 0.35 }], slam: ['slam', { gain: 0.5 }],
+  rumble: ['rumble', { gain: 0.45 }], roar: ['roar', { gain: 0.7, duck: 3.2 }], engulf: ['engulf', { gain: 0.55 }],
+  swell: ['swell', { gain: 0.35 }], lanceCharge: ['lance_charge', { gain: 0.3 }], lance: ['lance', { gain: 0.35 }], burst: ['burst', { gain: 0.45 }],
+  miteHop: ['mite_hop', { gain: 0.12 }], miteDie: ['mite_die', { gain: 0.25 }], devour: ['devour', { gain: 0.6, duck: 2.5 }],
+  stalk: ['stalk', { gain: 0.5, duck: 3 }], hunt: ['hunt', { gain: 0.6, duck: 2.5 }], lost: ['lost', { gain: 0.45 }], nice: ['nice', { gain: 0.3 }], cardPick: ['card_pick', { gain: 0.35 }],
+};
 const AU = {
   ctx: null, muted: (() => { try { return localStorage.getItem('sporebound_muted') === '1'; } catch (e) { return false; } })(),
   init() {
@@ -149,10 +162,33 @@ const AU = {
     const len = ctx.sampleRate; this.noiseBuf = ctx.createBuffer(1, len, len);
     const d = this.noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.startMusic();
+    this.loadSfx();
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) { ctx.suspend(); if (this.track) this.track.pause(); }
       else { ctx.resume(); if (this.track && !this.muted) this.track.play().catch(() => { }); }
     });
+  },
+  // sample hooks fall back to synth until loaded
+  buf: {},
+  loadSfx() {
+    const names = new Set(Object.values(SFX).flatMap(v => [].concat(v[0])));
+    for (const n of names) fetch('assets/sfx/' + n + '.mp3').then(r => r.ok ? r.arrayBuffer() : null)
+      .then(b => b && new Promise((ok, no) => this.ctx.decodeAudioData(b, ok, no))).then(d => { if (d) this.buf[n] = d; }).catch(() => { });
+    for (const k in SFX) {
+      const orig = this[k], [n, opt] = SFX[k];
+      this[k] = (...a) => {
+        const pick = [].concat(n), name = pick[Math.floor(Math.random() * pick.length)];
+        if (!this.ctx || !this.buf[name]) return orig && orig.apply(this, a);
+        const o = typeof opt === 'function' ? opt(...a) : (opt || {});
+        this.play(name, o.gain ?? 0.35, o.rate ?? 1);
+        if (o.duck) this.duck(o.duck);
+      };
+    }
+  },
+  play(name, gain, rate) {
+    const c = this.ctx, src = c.createBufferSource(), g = c.createGain();
+    src.buffer = this.buf[name]; src.playbackRate.value = rate * (0.97 + Math.random() * 0.06);
+    g.gain.value = Number.isFinite(gain) ? gain : 0.3; src.connect(g); g.connect(this.sfx); src.start();
   },
   impulse(sec, decay) {
     const c = this.ctx, n = Math.floor(c.sampleRate * sec), b = c.createBuffer(2, n, c.sampleRate);
@@ -616,7 +652,7 @@ function saveProgress() {
 }
 /* first-time fling lesson: shows on level 1 until two real flings land */
 const TUT = { flings: (() => { try { return +localStorage.getItem('sporebound_tut') || 0; } catch (e) { return 0; } })(), t: 0, fade: 1 };
-function tutCount() { if (TUT.flings >= 2) return; TUT.flings++; try { localStorage.setItem('sporebound_tut', String(TUT.flings)); } catch (e) { } }
+function tutCount() { if (TUT.flings >= 2) return; TUT.flings++; AU.nice && AU.nice(); try { localStorage.setItem('sporebound_tut', String(TUT.flings)); } catch (e) { } }
 function clearSave() { G.save = null; try { localStorage.removeItem('sporebound_story_save'); } catch (e) { } }
 function resetAirCharges() { if (G.ball && G.run) { G.ball.jumps = G.run.airJumps; G.ball.slings = G.run.airSlings; G.ball.skips = G.run.mods.skips; G.ball.coyote = Math.max(G.ball.coyote, G.ball.grounded || G.ball.vy === 0 ? PHYS.COYOTE : 0); } }
 const MENU = () => [...(G.save ? [{ id: 'continue', label: `Continue  -  level ${G.save.level + 1} of ${LEVELS}` }] : []), { id: 'story', label: 'Story  -  7 artifacts and a garden' }, { id: 'endless', label: 'Endless  -  coming soon', disabled: true }];
@@ -1088,7 +1124,7 @@ function draftReady() { return G.draft && G.draft.picked < 0 && G.draft.t > FLIP
 function pickCard(i) {
   const D = G.draft; if (!draftReady() || i < 0 || i >= D.cards.length) return;
   const m = D.cards[i], R = G.run;
-  D.picked = i; D.pickT = 0;
+  D.picked = i; D.pickT = 0; AU.cardPick();
   m.apply(R); R.owned[m.id] = (R.owned[m.id] || 0) + 1; if (!R.order.includes(m.id)) R.order.push(m.id);
   R.drafts++;
   Object.assign(G.w.mods, R.mods);
@@ -1673,8 +1709,8 @@ function chunkCanvas(cx, cy) {
 }
 /* plants (drawn in code) */
 const FLORA_PAL = {
-  orange: { g: ['#4a2326', '#75352f', '#9a4f33', '#c47048'], stem: '#5a2a28' },
-  green: { g: ['#1d2a26', '#2f4a36', '#4a6a44', '#74a05a'], stem: '#2f4a36' },
+  orange: { g: ['#163a3a', '#1f5c58', '#2f8a80', '#5cc8b4'], stem: '#173c3a' },
+  green: { g: ['#2a1a36', '#48285a', '#6e3a86', '#a466c0'], stem: '#3a2248' },
 };
 const PETAL = ['#f2d6e8', '#d8e6ff', '#fff2c0', '#e6d0ff'];
 function swayAt(px, py, t, h, s) {
@@ -1755,7 +1791,7 @@ function drawWorldBackground(t) {
   };
   const alt = -(cam.y + VH / 2 - G.w.start.y) / TS;
   // backdrop parallax
-  const haze = a => { ctx.fillStyle = `rgba(214,230,240,${a})`; ctx.fillRect(0, 0, VW, VH); };
+  const hz = G.w.garden ? [214, 230, 240] : mood().haze, haze = a => { ctx.fillStyle = `rgba(${hz[0]},${hz[1]},${hz[2]},${a})`; ctx.fillRect(0, 0, VW, VH); };
   const d2 = Math.round(Math.max(36, Math.min(VH, 36 + alt * 3))), d1 = Math.round(Math.max(64, Math.min(VH, 64 + alt * 6)));   // its painted ground always stays under the screen
   wrapDraw(b3, 0.05, t * 2 + bgi * 300);
   if (d2 < VH) { wrapDraw(d2 > 0 ? fadedLayer('bg2') : IMG.bg2, 0.15, bgi * 400, d2); if (d2 < 0) { ctx.fillStyle = '#b7cae0'; ctx.fillRect(0, VH + d2, VW, -d2); } }
@@ -1789,12 +1825,22 @@ function drawArtifact(g, t, info, k, fade = 1) {
 }
 
 // lighting
-const LEVEL_DARK = [0, 0.06, 0.12, 0.19, 0.26, 0.33, 0.4];
-const LEVEL_DEPTH = [0.08, 0.26, 0.4, 0.52, 0.62, 0.7, 0.78];     // how far the background has sunk into the dark
+const LEVEL_DARK = [0, 0.05, 0.12, 0.2, 0.28, 0.38, 0.48];
+const LEVEL_MOOD = [
+  { haze: [190, 232, 222], night: [14, 30, 34], spore: ['#c9fff0', '#8ff0c0'] },      // Sunken Spires: dawn mint
+  { haze: [236, 214, 160], night: [30, 24, 14], spore: ['#ffe9b0', '#ffc86b'] },      // Whispering Shelves: honey gold
+  { haze: [170, 214, 150], night: [14, 28, 16], spore: ['#e2ffb0', '#a6e07a'] },      // Hollow Tangle: deep green
+  { haze: [206, 150, 186], night: [30, 14, 28], spore: ['#ffd0ec', '#e07ab8'] },      // Gloaming Burrows: dusk rose
+  { haze: [130, 160, 214], night: [10, 16, 34], spore: ['#cddcff', '#7f9cf0'] },      // Misted Arches: cold blue
+  { haze: [150, 100, 70], night: [26, 14, 8], spore: ['#ffd29a', '#ff9a4a'] },        // Lantern Mire: ember
+  { haze: [70, 46, 96], night: [12, 6, 20], spore: ['#e6c8ff', '#b07aff'] },          // Last Mire: abyss violet
+];
+const mood = () => LEVEL_MOOD[Math.min(6, Math.max(0, G.level))];
+const LEVEL_DEPTH = [0.04, 0.14, 0.26, 0.38, 0.5, 0.62, 0.74];     // how far the background has sunk into the dark
 function worldLights() {
   const L = [], w = G.w, b = G.ball;
   for (const l of CB.lights()) L.push(Object.assign({ col: l.warm ? '#ffd27a' : '#6f8be0' }, l));
-  L.push({ x: b.x, y: b.y - 2, r: 60, col: '#ffd89a', p: 1 });
+  L.push({ x: b.x, y: b.y - 2, r: 78, col: '#ffd89a', p: 1 });
   for (const f of w.flies) if (!f.got) L.push({ x: f.x, y: f.y, r: 26, col: '#eaff8a', p: 0.75 });
   for (const p of w.pads) L.push({ x: p.cx, y: p.cy - 6, r: 46 * (p.scale || 1), col: '#9ff4ff', p: 0.8 });
   for (const c of w.caps) L.push({ x: c.ox + 35, y: c.oy + 22, r: 62, col: '#6f8be0', p: 0.75 });
@@ -1806,19 +1852,33 @@ function worldLights() {
 function drawWorldLight(cx, cy) {
   const base = G.level >= LEVELS ? 0 : LEVEL_DARK[Math.min(LEVEL_DARK.length - 1, G.level)] || 0;
   const amb = Math.max(base, (G.dark || 0) * 0.92);
-  VX.drawLight(cx, cy, worldLights(), amb, G.dark > 0.3 ? [8, 7, 15] : [12, 14, 26]);
+  VX.drawLight(cx, cy, worldLights(), amb, G.dark > 0.3 ? [8, 7, 15] : G.w.garden ? [12, 14, 26] : mood().night);
+}
+/* a fading streak of light behind Puff when he's moving fast */
+const TRAIL = [];
+function drawTrail(b, dt) {
+  const sp = Math.hypot(b.vx, b.vy);
+  if (sp > 120 && !G.paused) TRAIL.push({ x: b.x + (Math.random() - 0.5) * 3, y: b.y + (Math.random() - 0.5) * 3, t: 0, life: 0.35 + Math.random() * 0.2 });
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of TRAIL) {
+    p.t += dt; const k = 1 - p.t / p.life; if (k <= 0) continue;
+    ctx.globalAlpha = k * 0.5; ctx.fillStyle = '#ffd89a'; VX.disc(ctx, p.x, p.y, 1 + k * 2);
+    ctx.globalAlpha = k; ctx.fillStyle = '#fff6e0'; ctx.fillRect(Math.round(p.x), Math.round(p.y), 1, 1);
+  }
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  while (TRAIL.length && TRAIL[0].t > TRAIL[0].life) TRAIL.shift();
 }
 /* glowy spores floating around in the air, like the ones the blue caps drop */
 const SPORES = [];
 function drawSporeDrift(t, dt) {
-  const cam = G.cam, n = 38;
+  const cam = G.cam, n = 64;
   while (SPORES.length < n) SPORES.push({ x: cam.x + Math.random() * VW, y: cam.y + Math.random() * VH, vx: 4 + Math.random() * 6, vy: -3 - Math.random() * 5, ph: Math.random() * 9, big: Math.random() < 0.2 });
   for (const s of SPORES) {
     s.x += (s.vx + Math.sin(t * 0.7 + s.ph) * 4) * dt; s.y += (s.vy + Math.cos(t * 0.9 + s.ph) * 3) * dt;
     if (s.x < cam.x - 20 || s.x > cam.x + VW + 20 || s.y < cam.y - 20 || s.y > cam.y + VH + 20) { s.x = cam.x + Math.random() * VW; s.y = cam.y + VH + 10; if (Math.random() < 0.5) { s.x = cam.x - 10; s.y = cam.y + Math.random() * VH; } }
     const a = 0.35 + 0.35 * Math.sin(t * 2 + s.ph);
-    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * 0.25; ctx.fillStyle = '#6f8be0'; VX.disc(ctx, s.x, s.y, s.big ? 2 : 1);
-    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = a; ctx.fillStyle = s.big ? '#cddcff' : '#9db2f5'; ctx.fillRect(Math.round(s.x), Math.round(s.y), 1, 1);
+    ctx.globalCompositeOperation = 'lighter'; const sc = G.w.garden ? ['#cddcff', '#6f8be0'] : mood().spore; ctx.globalAlpha = a * 0.4; ctx.fillStyle = sc[1]; VX.disc(ctx, s.x, s.y, s.big ? 3 : 1);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = a; ctx.fillStyle = s.big ? sc[0] : sc[1]; ctx.fillRect(Math.round(s.x), Math.round(s.y), 1, 1);
   }
   ctx.globalAlpha = 1;
 }
@@ -1826,7 +1886,7 @@ function renderPlay(t, dt) {
   const w = G.w, L = w.L, cam = G.cam, cx = Math.round(cam.x), cy = Math.round(cam.y);
   drawWorldBackground(t);
   if (G.w.garden) drawGodRays(t, cam.x);
-  { const dpt = Math.max(G.level >= LEVELS ? 0 : LEVEL_DEPTH[Math.min(LEVEL_DEPTH.length - 1, G.level)], (G.dark || 0) * 0.85); if (dpt > 0) { ctx.fillStyle = `rgba(10,9,24,${dpt})`; ctx.fillRect(0, 0, VW, VH); } }
+  { const dpt = Math.max(G.level >= LEVELS ? 0 : LEVEL_DEPTH[Math.min(LEVEL_DEPTH.length - 1, G.level)], (G.dark || 0) * 0.85); if (dpt > 0) { const nc = G.w.garden ? [10, 9, 24] : mood().night; ctx.fillStyle = `rgba(${nc[0]},${nc[1]},${nc[2]},${dpt})`; ctx.fillRect(0, 0, VW, VH); } }
   const [sx, sy] = VX.cameraOffset(t, dt);
   ctx.save(); ctx.translate(-cx + sx, -cy + sy);
   const vis = [];
@@ -1848,6 +1908,7 @@ function renderPlay(t, dt) {
   if (G.phase === 'dead') { const b = G.ball; if (G.phaseT < 0.4) drawBall({ x: b.x, y: b.y + G.phaseT * 30, vx: 0, vy: 0 }, t, 1 - G.phaseT * 2.2); }
   else if (G.phase !== 'draft') {
     CB.draw(ctx, t);
+    drawTrail(G.ball, dt);
     drawBall(G.ball, t, G.iframes > 0 && Math.floor(t * 18) % 2 ? 0.35 : 1);
     if (G.phase === 'play' && !grounded() && G.ball.slings > 0) {
       const r = 8 + Math.sin(t * 6) * 0.6; ctx.fillStyle = '#9ff4dc'; ctx.globalAlpha = 0.55;
@@ -1868,7 +1929,7 @@ function renderPlay(t, dt) {
   VX.draw(ctx, dt);
   ctx.restore();
   drawWorldLight(cx - sx, cy - sy);
-  VX.drawVignette(0.55 + (G.dark || 0) * 0.45);
+  VX.drawVignette(Math.max(0.45 + Math.max(0, G.level) * 0.06, (G.dark || 0)));
   if (G.flashA > 0) { ctx.globalAlpha = G.fxMax ? Math.min(1, G.flashA) : Math.min(0.35, G.flashA * 0.5); ctx.fillStyle = G.flashCol || '#ffffff'; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1; G.flashA -= dt * 2.6; }
   if (G.aim) {
     ctx.strokeStyle = 'rgba(234,255,246,0.35)'; ctx.lineWidth = 1;
