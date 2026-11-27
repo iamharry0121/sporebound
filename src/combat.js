@@ -462,6 +462,7 @@ window.makeCombat = function (A) {
         const prev = S.elder;
         S.elder = { type: 'elder', x, gy, state: 'rise', t: 0, flash: 0, face: -dir || -1, cycle: prev ? prev.cycle : 0, step: prev ? prev.step : 0, shrug: prev ? prev.shrug : 0, under: !!under, far: 0 };
         AU.rumble(); shake(0.5); G.oracle = null; G.oracleNext = 1e9; G.darkT = 1;          // the hooded guy goes quiet and the dark closes in
+        if (G.level === 0 && !S.elder.hunt) { G.cine = 1; G.cineText = 'The Elder. You are not meant to win this one.'; }
         return true;
       }
     }
@@ -572,7 +573,7 @@ window.makeCombat = function (A) {
     fx('popB', b.x, b.y, { sc: 1.4, speed: 22 }); ring(b.x, b.y, 60, { speed: 160 }); VX.sparkBurst(b.x, b.y, 40, { col: '#fff2cc', speed: 300, life: 0.8, curve: 6 }); VX.kick(0.8);
     burst(b.x, b.y, 26, { color: [DEEP, '#fff2cc', GLOW], speed: 130, life: 0.8 });
     popup(`-${Math.round(R.dnaLag)} DNA`, b.x, b.y - 18, '#ffb0b0');
-    G.phase = 'dead'; G.phaseT = 0.45; R.elderDone = true;
+    G.phase = 'dead'; G.phaseT = 0.45; R.elderDone = true; G.cineText = null;
     G.deadHold = 1.2 + ELDER_LINE.length * 0.045 + 1.6;      // hold on the moment while the hooded guy talks
     const hi = ELDER_LINE.indexOf('Bounce back');
     G.oracle = { line: ELDER_LINE, hl: [hi, hi + 'Bounce back'.length], t: -0.6, dur: 1.2 + ELDER_LINE.length * 0.045 + 3.4, chars: 0 };
@@ -1038,14 +1039,17 @@ window.makeCombat = function (A) {
       c.fillStyle = '#b6ff5a'; c.fillRect(Math.round(tx.x) - 1, Math.round(tx.y) - 1, 3, 3); px(c, tx.x - 1, tx.y - 1, '#f0ffb0');
     }
   }
-  /* the aim reticle at the mouse (world coords), the ring shows the blast cooldown */
-  function drawReticle(c, x, y, t) {
-    const ready = S.cd <= 0, col = ready ? '#d8ff9a' : '#7f9a6a';
-    c.globalAlpha = 0.85;
-    for (const [dx, dy] of [[-4, 0], [-3, 0], [3, 0], [4, 0], [0, -4], [0, -3], [0, 3], [0, 4]]) px(c, x + dx, y + dy, col);
-    px(c, x, y, col);
-    if (!ready) { const k = 1 - S.cd / G.run.toxCd; for (let i = 0; i < 12 * k; i++) { const a = -Math.PI / 2 + i / 12 * Math.PI * 2; px(c, x + Math.cos(a) * 6, y + Math.sin(a) * 6, '#b6ff5a'); } }
-    c.globalAlpha = 1;
+  /* the aiming reticle at the mouse (world coordinates), with the blast recharge as a ring */
+  function drawReticle(c, x, y, t, aiming) {
+    x = Math.round(x); y = Math.round(y);
+    const ready = S.cd <= 0, col = aiming ? '#fff6e0' : ready ? '#eaff8a' : '#9fb88a';
+    const arms = []; for (let d = 3; d <= 7; d++) arms.push([-d, 0], [d, 0], [0, -d], [0, d]);
+    c.globalAlpha = 0.9; c.fillStyle = '#1a1424';                     // dark outline so it reads on any background
+    for (const [dx, dy] of arms.concat([[0, 0]])) c.fillRect(x + dx - 1, y + dy - 1, 3, 3);
+    c.globalAlpha = 1; c.fillStyle = col;
+    for (const [dx, dy] of arms) c.fillRect(x + dx, y + dy, 1, 1);
+    c.fillRect(x, y, 1, 1);
+    if (!ready && !aiming) { const k = 1 - S.cd / G.run.toxCd; for (let i = 0; i < 16 * k; i++) { const a = -Math.PI / 2 + i / 16 * Math.PI * 2; px(c, x + Math.cos(a) * 10, y + Math.sin(a) * 10, '#b6ff5a'); } }
   }
 
   const elderActive = () => !!S.elder && S.elder.state !== 'sated';

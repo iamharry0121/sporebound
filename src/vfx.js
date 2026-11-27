@@ -77,10 +77,10 @@ window.makeVFX = function (V) {
   }
 
   /* camera shake */
-  function kick(amount, dx = 0, dy = 0) { G.trauma = Math.min(1, (G.trauma || 0) + amount); G.kickX = (G.kickX || 0) + dx; G.kickY = (G.kickY || 0) + dy; }
+  function kick(amount, dx = 0, dy = 0) { G.trauma = Math.min(1, (G.trauma || 0) + amount); const s = G.fxMax ? 1 : 0.5; G.kickX = (G.kickX || 0) + dx * s; G.kickY = (G.kickY || 0) + dy * s; }
   function cameraOffset(t, dt) {
     G.trauma = Math.max(0, (G.trauma || 0) - dt * 1.6);
-    const legacy = G.shake > 0 ? Math.min(1, G.shake / 0.6) : 0, tr = Math.max(G.trauma, legacy * 0.9), m = tr * tr * 10;
+    const legacy = G.shake > 0 ? Math.min(1, G.shake / 0.6) : 0, tr = Math.max(G.trauma, legacy * 0.9), m = tr * tr * (G.fxMax ? 10 : 4.5);
     const ox = m * (Math.sin(t * 61.3) * 0.6 + Math.sin(t * 97.1 + 2) * 0.4) + (G.kickX || 0);
     const oy = m * (Math.sin(t * 71.7 + 1) * 0.6 + Math.sin(t * 89.3 + 5) * 0.4) + (G.kickY || 0);
     G.kickX = (G.kickX || 0) * Math.exp(-dt * 14); G.kickY = (G.kickY || 0) * Math.exp(-dt * 14);
