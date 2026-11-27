@@ -5,7 +5,7 @@ const VW = 640, VH = 400, TS = 16, COLS = 40, ROWS = 25;
 
 const PHYS = {
   G: 600, VMAX: 520, R: 5, DT: 1 / 120,
-  E_GROUND: 0.42, E_POST: 0.5, E_CAP: 0.9, E_LOG: 0.45,
+  E_GROUND: 0.3, E_POST: 0.4, E_CAP: 0.9, E_LOG: 0.35,
   PAD_MIN: 380, CAP_MIN: 240, ROLL: 170, REST_SPEED: 9, REST_TIME: 0.3, SHOT_MAX: 12,
   /* platformer controls */
   MOVE_MAX: 115, MOVE_ACC: 520, AIR_ACC: 240, HOP: 250, COYOTE: 0.1,
@@ -195,7 +195,7 @@ function resolve(b, nx, ny, pen, e, svx, svy, minOut, ev, kind, ref) {
   if (vn < 0) {
     const tx = rvx - vn * nx, ty = rvy - vn * ny;
     let out = -vn * e;
-    if (-vn < 35 && !minOut) out = 0;
+    if (-vn < 55 && !minOut) out = 0;   // soft landings just stop, no tiny hops
     if (minOut && out < minOut) out = minOut;
     const fr = -vn > 60 ? 0.9 : 0.995;
     b.vx = tx * fr + nx * out + svx; b.vy = ty * fr + ny * out + svy;
@@ -259,7 +259,7 @@ function stepBall(w, b, dt, ev) {
   for (const p of w.posts) collideRect(b, p.rect[0], p.rect[1], p.rect[2], p.rect[3], P.E_POST, ev, 'post');
   for (const cap of w.caps) {
     let hit = false;
-    for (const s of cap.segs) if (collideSeg(b, s[0], s[1], s[2], s[3], 0, P.E_CAP, 0, 0, P.CAP_MIN, ev, 'cap', cap)) hit = true;
+    for (const s of cap.segs) if (collideSeg(b, s[0], s[1], s[2], s[3], 0, P.E_CAP, 0, 0, P.CAP_MIN * m.padPower, ev, 'cap', cap)) hit = true;
     if (hit) b.grounded = false;
   }
   for (const pad of w.pads) {

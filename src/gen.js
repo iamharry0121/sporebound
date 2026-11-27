@@ -221,7 +221,23 @@ function makeLevel(n, seedOverride) {
     if (clear.has(k)) return '.';
     if (isles.has(k)) return '#';
     if (branches.has(k)) return '-';
-    return solidAfterCarve(x, y) ? '#' : '.';
+    if (solidAfterCarve(x, y)) return '#';
+    return wallStep(x, y) ? '-' : '.';
+  }
+  // branch lips on island edges
+  const stepMemo = new Map();
+  function wallStep(x, y) {
+    return memo(stepMemo, x * 4194304 + y, () => {
+      if (solidAfterCarve(x, y - 1) || solidAfterCarve(x, y + 1) || solidAfterCarve(x, y + 2)) return false;   // needs air above and a drop below
+      for (const d of [-1, 1]) for (let w = 1; w <= 2; w++) {
+        const ex = x + d * w;                                                   // the island's top edge tile
+        if (!solidAfterCarve(ex, y) || solidAfterCarve(ex, y - 1)) continue;
+        if (!solidAfterCarve(ex - d, y + 1) && !solidAfterCarve(ex, y + 2)) continue;   // a real island, not a crumb
+        let open = true; for (let i = 0; i < w && open; i++) open = !solidAfterCarve(x + d * i, y) && !solidAfterCarve(x + d * i, y + 1);
+        if (open && !solidAfterCarve(x - d, y) && !solidAfterCarve(x - d, y + 1)) return true;
+      }
+      return false;
+    });
   }
   const pathish = (x, y) => carved(x, y) || clear.has(key(x, y)) || branches.has(key(x, y)) || isles.has(key(x, y));
   const waterMemo = new Map();
@@ -256,25 +272,27 @@ function makeLevel(n, seedOverride) {
   // guards along the route
   const ambush = new Map();
   {
-    const want = 1 + Math.round(prog * 6), pts2 = [];
+    const want = 3 + Math.round(prog * 8), pts2 = [];
     let total = 0; for (const s of segs) total += Math.hypot(s.x1 - s.x0, s.y1 - s.y0);
     const pointAt = d => { for (const s of segs) { const L = Math.hypot(s.x1 - s.x0, s.y1 - s.y0); if (d <= L) return [s.x0 + (s.x1 - s.x0) * d / L, s.y0 + (s.y1 - s.y0) * d / L]; d -= L; } return [ax, ay]; };
     const okSurf = (x, y) => structural(x, y) === '#' && [1, 2, 3].every(k => structural(x, y - k) === '.') && !water(x, y - 1, 0) &&
       [-1, 1].every(d => structural(x + d, y) === '#' && structural(x + d, y - 1) === '.');
     for (let i = 0; i < want; i++) {
-      const [px, py] = pointAt(total * (0.3 + 0.6 * (i + 0.5) / want));
+      const [px, py] = pointAt(total * (0.22 + 0.72 * (i + 0.5) / want));
       let found = null;
-      for (let r = 3; r <= 11 && !found; r++) for (const sx of [1, -1]) {
+      for (let r = 3; r <= 15 && !found; r++) for (const sx of [1, -1]) {
         const x = Math.round(px + sx * r);
         for (let y = Math.round(py) - 6; y <= Math.round(py) + 10 && !found; y++)
-          if (okSurf(x, y) && Math.hypot(x, y) > 11 && Math.hypot(x - ax, y - ay) > 6 && pts2.every(([qx, qy]) => Math.hypot(qx - x, qy - y) > 7)) found = [x, y];
+          if (okSurf(x, y) && Math.hypot(x, y) > 10 && Math.hypot(x - ax, y - ay) > 6 && pts2.every(([qx, qy]) => Math.hypot(qx - x, qy - y) > 6)) found = [x, y];
         if (found) break;
       }
       if (!found) continue;
       pts2.push(found);
       const hh = hash2(found[0], found[1], seed + 31);
-      const type = n === 0 ? 'shroom' : n === 1 ? 'drift' : n === 2 ? 'worm' : hh < 0.42 ? 'shroom' : hh < 0.72 ? 'drift' : 'worm';
-      ambush.set(found[0] + ',' + found[1], type);
+      const intro = n === 0 ? 'shroom' : n === 1 ? 'drift' : n === 2 ? 'worm' : null;   // each new rival shows up first
+      const type = intro && i === 0 ? intro : n === 0 ? 'shroom' : hh < 0.42 ? 'shroom' : hh < 0.72 || n < 2 ? 'drift' : 'worm';
+      const hb = hash2(found[0], found[1], seed + 57);       // later levels swap some guards for the newer rivals
+      ambush.set(found[0] + ',' + found[1], i === 0 && intro ? type : n >= 2 && hb < 0.2 ? 'bloater' : n >= 5 && hb < 0.38 ? 'mite' : type);
     }
   }
   // scenery placement
@@ -355,11 +373,19 @@ function makeLevel(n, seedOverride) {
       if (guard === 'shroom') c.enemies.push({ type: 'shroom', x: x * TS + 8, y: (y - 1) * TS + 8, id: k + ':a' + i + ':' + j });
       else if (guard === 'drift') c.enemies.push({ type: 'drift', x: x * TS + 8, y: y * TS, id: k + ':f' + i + ':' + j });
       else if (guard === 'worm') c.enemies.push({ type: 'worm', x: x * TS + 8, y: y * TS, id: k + ':w' + i + ':' + j });
+      else if (guard === 'bloater' || guard === 'mite') c.enemies.push({ type: guard, x: x * TS + 8, y: y * TS, id: k + ':' + guard[0] + i + ':' + j });
       else if (far && structural(x, y - 3) === '.') {
         const flat = [-1, 1].every(d => structural(x + d, y) === '#' && structural(x + d, y - 1) === '.');
-        if (flat && he < 0.013 + prog * 0.02) c.enemies.push({ type: 'shroom', x: x * TS + 8, y: (y - 1) * TS + 8, id: k + ':a' + i + ':' + j });
-        else if (flat && he > 0.993 - prog * 0.013) c.enemies.push({ type: 'drift', x: x * TS + 8, y: y * TS, id: k + ':f' + i + ':' + j });
-        else if (flat && n >= 2 && he > 0.5 && he < 0.506 + prog * 0.008 && [-2, 2].every(d => structural(x + d, y) === '#')) c.enemies.push({ type: 'worm', x: x * TS + 8, y: y * TS, id: k + ':w' + i + ':' + j });
+        if (flat && he < 0.03 + prog * 0.03) c.enemies.push({ type: 'shroom', x: x * TS + 8, y: (y - 1) * TS + 8, id: k + ':a' + i + ':' + j });
+        else if (flat && n >= 1 && he > 0.982 - prog * 0.02) c.enemies.push({ type: 'drift', x: x * TS + 8, y: y * TS, id: k + ':f' + i + ':' + j });
+        else if (flat && n >= 2 && he > 0.5 && he < 0.509 + prog * 0.012 && [-2, 2].every(d => structural(x + d, y) === '#')) c.enemies.push({ type: 'worm', x: x * TS + 8, y: y * TS, id: k + ':w' + i + ':' + j });
+        else if (flat && n >= 2 && he > 0.3 && he < 0.306 + prog * 0.012 && [-2, 2].every(d => structural(x + d, y) === '#')) c.enemies.push({ type: 'bloater', x: x * TS + 8, y: y * TS, id: k + ':b' + i + ':' + j });
+        else if (flat && n >= 5 && he > 0.7 && he < 0.704 + prog * 0.008) c.enemies.push({ type: 'mite', x: x * TS + 8, y: y * TS, id: k + ':m' + i + ':' + j });
+        else if (n >= 2 && he > 0.2 && he < 0.26 + prog * 0.03 && [1, 2, 3, 4, 5].every(k2 => structural(x, y - k2) === '.')) {
+          // lancers root on ledge edges, looking out over a drop
+          const edge = [-1, 1].some(d => structural(x + d, y) === '.' && [0, 1, 2, 3].every(q => structural(x + d, y + q) === '.'));
+          if (edge) c.enemies.push({ type: 'lancer', x: x * TS + 8, y: y * TS, id: k + ':l' + i + ':' + j });
+        }
       }
     }
     return c;

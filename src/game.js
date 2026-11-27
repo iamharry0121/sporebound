@@ -1,7 +1,7 @@
 // main game file
 (function () {
 'use strict';
-const { VW, VH, TS, COLS, ROWS, PHYS, SPR, HOLES, makeWorld, makeBall, stepBall, updateSwings, growPad, surfaceY, tileAt } = window.SB;
+const { VW, VH, TS, COLS, ROWS, PHYS, SPR, HOLES, makeWorld, makeBall, stepBall, updateSwings, surfaceY, tileAt } = window.SB;
 
 /* loading the images */
 const IMG = {};
@@ -67,14 +67,14 @@ const GLYPHS = {
 };
 // fonts
 const FONT_PX = 11, FONT_PAD = 4;
-const FONTS = { body: { family: 'PixelSans', file: 'PixelSans.ttf', ready: false, dy: 4 }, head: { family: 'ScrollPixel', file: 'ScrollPixel.ttf', ready: false, dy: 4 } };
+const FONTS = { body: { family: 'PixelSans', file: 'PixelSans.ttf', ready: false, dy: 4 } };
 const textCache = new Map();
 const mctx = document.createElement('canvas').getContext('2d');
 if (window.FontFace) for (const k in FONTS) {
   const F = FONTS[k];
   new FontFace(F.family, `url(assets/fonts/${F.file})`).load().then(f => { document.fonts.add(f); F.ready = true; textCache.clear(); }).catch(() => { });
 }
-const fontFor = sc => { const F = sc >= 2 ? FONTS.head : FONTS.body; return F.ready ? F : (FONTS.body.ready ? FONTS.body : null); };
+const fontFor = sc => FONTS.body.ready ? FONTS.body : null;   // one clean face everywhere: the decorative one was hard to read big
 const prep = (s, F) => F.family === 'PixelSans' ? s.replace(/·/g, '-') : s;
 const CREDIT_LINE = 'made by harry';
 function runCanvas(s, color, F) {
@@ -306,12 +306,10 @@ function buildCaches(w) {
 }
 const MUTATIONS = [
   { id: 'membrane', name: 'Thick Membrane', r: 0, max: 3, icon: 'shield', desc: 'Splashes and falls cost 20% less DNA.', apply: R => { R.splashCost *= 0.8; } },
-  { id: 'springcap', name: 'Springy Caps', r: 0, max: 3, icon: 'glow', desc: 'Glowcaps launch you 15% harder.', apply: R => { R.mods.padPower *= 1.15; } },
+  { id: 'springcap', name: 'Springy Caps', r: 0, max: 3, icon: 'glow', desc: 'Big mushrooms launch you 15% harder.', apply: R => { R.mods.padPower *= 1.15; } },
   { id: 'stem', name: 'Strong Stem', r: 0, max: 3, icon: 'arrow', desc: 'Fling 8% further.', apply: R => { R.mods.power *= 1.08; } },
   { id: 'sticky', name: 'Sticky Coat', r: 0, max: 2, icon: 'drop', desc: 'You grip and stop rolling sooner.', apply: R => { R.mods.grip *= 1.6; } },
   { id: 'strand', name: 'Extra Strand', r: 0, max: 3, icon: 'helix', desc: '+25 max DNA.', apply: R => { R.dnaMax += 25; } },
-  { id: 'overgrowth', name: 'Overgrowth', r: 1, max: 2, icon: 'glow', desc: 'Glowcaps grow 30% bigger.', apply: R => { R.mods.padSize *= 1.3; } },
-  { id: 'sight', name: 'Spore Sight', r: 1, max: 1, icon: 'eye', desc: 'Your aim guide reaches twice as far.', apply: R => { R.preview *= 2; } },
   { id: 'feather', name: 'Feather Seed', r: 1, max: 2, icon: 'feather', desc: 'Gravity pulls 12% less.', apply: R => { R.mods.grav *= 0.88; } },
   { id: 'kin', name: 'Firefly Kin', r: 1, max: 3, icon: 'fly', desc: 'Fireflies restore +20 more DNA.', apply: R => { R.flyHeal += 20; } },
   { id: 'rubber', name: 'Rubber Rind', r: 2, max: 1, icon: 'ball', desc: 'Soil is much bouncier.', apply: R => { R.mods.soilE += 0.22; } },
@@ -325,7 +323,7 @@ const MUTATIONS = [
   { id: 'potent', name: 'Potent Toxin', r: 1, max: 3, icon: 'drop', desc: 'Toxin blasts hit 50% harder.', apply: R => { R.toxDmg *= 1.5; } },
   { id: 'thorns', name: 'Barbed Coat', r: 2, max: 1, icon: 'shield', desc: 'Rivals that touch you get hurt too.', apply: R => { R.thorns = true; } },
   { id: 'devour', name: 'Devour', r: 3, max: 1, icon: 'heart', desc: 'Dissolving a rival restores 8 DNA.', apply: R => { R.devour = true; } },
-  { id: 'undertow', name: 'Undertow Bloom', r: 4, max: 1, icon: 'glow', desc: 'Splash, and a glowcap throws you back out.', apply: R => { R.undertow = true; } },
+  { id: 'undertow', name: 'Undertow Bloom', r: 4, max: 1, icon: 'glow', desc: 'Splash, and the water throws you back out.', apply: R => { R.undertow = true; } },
 ];
 
 /* 12x12 pixel icons for the cards. a = outline, b = rarity colour, c = highlight */
@@ -551,13 +549,20 @@ const RARITY = [
 const G = { ts: 1,
   state: 'load', mode: 'story', w: null, ball: null, phase: 'play', phaseT: 0, roomT: 0, particles: [], popups: [], fx: [], orbs: [],
   aim: null, kbAim: { a: 40, p: 0.6, on: false }, level: 0, run: null, draft: null, lastSafe: null, safeT: 0,
-  time: 0, flies: 0, fade: 1, endT: 0, best: null, secondWindUsed: false, kbDraft: false, sinkX: 0, sinkY: 0, padGrown: false,
+  time: 0, flies: 0, fade: 1, endT: 0, best: null, secondWindUsed: false, kbDraft: false, sinkX: 0, sinkY: 0,
   roomSpores: 0, touch: false, hopQueued: false, trail: [], oracle: null, oracleNext: 2.6, facing: 1, askCd: 0,
   cam: { x: 0, y: 0 }, artifacts: [], menu: 0, save: null, airT: 0,
 };
 try { G.best = JSON.parse(localStorage.getItem('sporebound_story_best') || 'null'); G.save = JSON.parse(localStorage.getItem('sporebound_story_save') || 'null'); } catch (e) { }
 const MUT = Object.fromEntries(MUTATIONS.map(m => [m.id, m]));
 VX.bind(G);
+/* the Elder ate everything: same run, same progress, but no mutations and a fresh body */
+function stripMutations() {
+  const R = G.run, keep = { spores: R.spores, drafts: R.drafts, pity: R.pity, elderDone: R.elderDone };
+  G.run = Object.assign(newRun(), keep);
+  Object.assign(G.w.mods, G.run.mods);
+  popup('You came back with nothing. Grow again.', G.lastSafe.x, G.lastSafe.y - 30, '#c2bba8');
+}
 function newRun() {
   return { dna: 100, dnaMax: 100, dnaShown: 100, dnaLag: 100, splashCost: 1, mods: Object.assign({}, window.SB.DEFAULT_MODS),
     preview: 1, flyHeal: 10, secondWind: false, lure: false, airJumps: 0, airSlings: 1, trueSight: false, undertow: false,
@@ -586,7 +591,7 @@ function startLevel(n) {
   G.aim = null; G.kbAim.on = false; G.state = 'play'; G.fade = 1; G.paused = false; G.secondWindUsed = false; G.roomSpores = 0;
   G.oracle = null; G.oracleNext = 3.2; G.facing = Math.sign(G.w.goal.x - G.w.start.x) || 1; G.askCd = 0;
   G.cam.x = G.ball.x - VW / 2; G.cam.y = G.ball.y - VH * 0.55;
-  G.prog = n / (LEVELS - 1); CB.reset(); G.deadHold = 0; G.elderPad = null; G.lockCam = false;
+  G.prog = n / (LEVELS - 1); CB.reset(); G.deadHold = 0; G.lockCam = false;
   chunkCache.clear();
   window.GEN.loadAround(G.w, G.ball.x, G.ball.y, 2);
   resetAirCharges();
@@ -609,6 +614,9 @@ function saveProgress() {
   G.save = { level: G.level, owned: R.owned, order: R.order, dna: R.dna, spores: R.spores, drafts: R.drafts, pity: R.pity, time: G.time, flies: G.flies, kills: G.kills || 0, artifacts: G.artifacts };
   try { localStorage.setItem('sporebound_story_save', JSON.stringify(G.save)); } catch (e) { }
 }
+/* first-time fling lesson: shows on level 1 until two real flings land */
+const TUT = { flings: (() => { try { return +localStorage.getItem('sporebound_tut') || 0; } catch (e) { return 0; } })(), t: 0, fade: 1 };
+function tutCount() { if (TUT.flings >= 2) return; TUT.flings++; try { localStorage.setItem('sporebound_tut', String(TUT.flings)); } catch (e) { } }
 function clearSave() { G.save = null; try { localStorage.removeItem('sporebound_story_save'); } catch (e) { } }
 function resetAirCharges() { if (G.ball && G.run) { G.ball.jumps = G.run.airJumps; G.ball.slings = G.run.airSlings; G.ball.skips = G.run.mods.skips; G.ball.coyote = Math.max(G.ball.coyote, G.ball.grounded || G.ball.vy === 0 ? PHYS.COYOTE : 0); } }
 const MENU = () => [...(G.save ? [{ id: 'continue', label: `Continue  -  level ${G.save.level + 1} of ${LEVELS}` }] : []), { id: 'story', label: 'Story  -  7 artifacts and a garden' }, { id: 'endless', label: 'Endless  -  coming soon', disabled: true }];
@@ -633,14 +641,18 @@ screen.addEventListener('pointerdown', e => {
   if (G.state === 'title') { if (ready()) { const i = menuHit(p); if (i >= 0) { G.menu = i; menuSelect(i); } } return; }
   if (G.state === 'end') { if (G.endT > 2.5) { AU.ui(); G.state = 'title'; } return; }
   if (G.state !== 'play') return;
-  if (G.paused) { G.paused = false; return; }
+  if (G.paused) {
+    if (Math.abs(p.y - SENS_ROW.y) < 9 && Math.abs(p.x - SENS_ROW.l) < 14) { setSens(-1); return; }
+    if (Math.abs(p.y - SENS_ROW.y) < 9 && Math.abs(p.x - SENS_ROW.r) < 14) { setSens(1); return; }
+    G.paused = false; return;
+  }
   if (G.phase === 'cleared') { if (G.phaseT > 1.2) nextLevel(); return; }
   if (p.x > VW - 40 && p.y < 22) { AU.setMute(!AU.muted); return; }
   if (G.phase === 'draft') { G.kbDraft = false; pickCard(draftHit(p)); return; }
   if (G.touch) for (const k in TBTN) {
     const [bx, by, br] = TBTN[k];
     if ((p.x - bx) ** 2 + (p.y - by) ** 2 < (br + 6) ** 2) {
-      if (k === 'listen') { if (!G.oracle && G.askCd <= 0 && !CB.elderActive() && !(G.w && G.w.garden)) { summonOracle(); G.askCd = 6; } return; }
+      if (k === 'listen') { if (!G.oracle && G.askCd <= 0 && canListen()) { summonOracle(); G.askCd = 6; } return; }
       touchHeld[k] = e.pointerId; if (k === 'hop') G.hopQueued = true; return;
     }
   }
@@ -701,9 +713,14 @@ window.addEventListener('keydown', e => {
   }
   if (G.phase === 'cleared') { if (go && G.phaseT > 1.2) nextLevel(); return; }
   if ((e.code === 'Escape' && !G.kbAim.on) || e.code === 'KeyP') { G.paused = !G.paused; AU.tick(); return; }
-  if (G.paused) { if (go) G.paused = false; return; }
+  if (G.paused) {
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') setSens(-1);
+    else if (e.code === 'ArrowRight' || e.code === 'KeyD') setSens(1);
+    else if (go) G.paused = false;
+    return;
+  }
   if (G.phase !== 'play') return;
-  if (e.code === 'KeyQ' && !G.oracle && G.askCd <= 0 && !CB.elderActive() && !(G.w && G.w.garden)) { summonOracle(); G.askCd = 6; return; }
+  if (e.code === 'KeyQ' && !G.oracle && G.askCd <= 0 && canListen()) { summonOracle(); G.askCd = 6; return; }
   if (G.kbAim.on) {
     if (go) { if (canSling()) { const a = G.kbAim.a * Math.PI / 180, v = G.kbAim.p * vmax(); fling(Math.cos(a) * v, -Math.sin(a) * v, G.kbAim.p); } G.kbAim.on = false; }
     if (e.code === 'KeyF' || e.code === 'Escape' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') G.kbAim.on = false;
@@ -717,9 +734,14 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (G.state === 'play' && (G.phase === 'play' || G.phase === 'dead')) G.paused = true; });
 
+/* fling sensitivity: how far you have to pull for full power (set in the pause menu, remembered) */
+const SENS = [0.6, 0.8, 1, 1.25, 1.6];
+let sensI = (() => { try { const v = +localStorage.getItem('sporebound_sens'); return v >= 0 && v < SENS.length && localStorage.getItem('sporebound_sens') !== null ? v : 2; } catch (e) { return 2; } })();
+function setSens(d) { sensI = Math.max(0, Math.min(SENS.length - 1, sensI + d)); try { localStorage.setItem('sporebound_sens', String(sensI)); } catch (e) { } AU.tick(); }
+const SENS_ROW = { y: 214, l: VW / 2 - 70, r: VW / 2 + 70 };
 function aimVector() {
   const a = G.aim, dx = a.sx - a.x, dy = a.sy - a.y, d = Math.hypot(dx, dy);
-  const p = Math.min(1, d / 110);
+  const p = Math.min(1, d / (110 / SENS[sensI]));
   if (d < 1) return { vx: 0, vy: 0, p: 0 };
   return { vx: dx / d * p * vmax(), vy: dy / d * p * vmax(), p };
 }
@@ -732,6 +754,7 @@ function fling(vx, vy, p) {
   const b = G.ball;
   const air = !grounded();
   b.vx = vx; b.vy = vy; b.t = 0; b.restT = 0; b.padCombo = 0; b.coyote = 0;
+  if (p >= 0.2) tutCount();
   AU.shoot(p);
   { const back = Math.atan2(-vy, -vx); VX.sparkBurst(b.x, b.y, 6 + Math.round(p * 6), { angle: back, spread: 1.1, speed: 120 + p * 140, col: '#ffe6a8', life: 0.28 }); VX.ring(b.x, b.y, 10 + p * 10, { flat: 1, speed: 90 }); VX.kick(0.04 + p * 0.08, -vx / 500, -vy / 500); }
   if (air) { b.slings = Math.max(0, (b.slings || 0) - 1); fx('sparkG', b.x, b.y, { sc: 0.9 }); burst(b.x, b.y, 6, { color: ['#9ff4dc', '#c8fff0'], speed: 70, life: 0.35 }); return; }
@@ -834,30 +857,17 @@ function fixedUpdate(dt) {
     if (b.grounded) G.airT = 0; else G.airT += dt;
     if (!b.grounded && b.y > G.lastSafe.y + 560 && G.airT > 1.2) lostInDark();
     else if (r === 'goal' && G.w.garden) gardenFinale();
-    else if (r === 'goal' && !CB.elderActive() && !(G.level === 0 && !G.run.elderDone)) artifactFound();   // level 1: the elder comes first
+    else if (r === 'goal' && !(CB.elderActive() && !CB.S.elder.hunt) && !(G.level === 0 && !G.run.elderDone)) artifactFound();   // level 1: the elder comes first
     else if (r === 'sink') sink();
   } else if (G.phase === 'dead') {
-    if (!G.padGrown && G.phaseT > 0.45) {
-      G.padGrown = true;
-      const pad = growPad(w, G.sinkX, G.sinkY);
-      if (pad) { AU.grow(); fx('sparkG', pad.cx, pad.sy - 16 * (pad.scale || 1), { sc: 1.4 }); popup('A glowcap grew!', pad.cx, pad.sy - 40, '#9ff4ff'); }
-    }
     CB.updateElder(dt); CB.fxTick(dt);
-    if (G.elderPad && G.phaseT > 1.6) {                     // where u fell a glowcap grows
-      const p = G.elderPad; G.elderPad = null;
-      const sy = (() => { for (let k = 0; k < 30; k++) { const y = p.y + k * 4; if (tileAt(w, Math.floor(p.x / TS), Math.floor(y / TS)) === '#') return Math.floor(y / TS) * TS; } return null; })();
-      if (sy != null) {
-        const ps = w.mods.padSize, pad = { x: p.x, sy, cx: p.x, cy: sy - 2 - 19 * (ps - 1), r: 21 * ps, scale: ps, grow: 0, squish: 0 };
-        w.pads.push(pad); AU.grow(); fx('sparkG', pad.cx, sy - 16, { sc: 1.4 }); popup('Your spore took root.', pad.cx, sy - 40, '#9ff4ff');
-      }
-    }
-    if (G.phaseT > 1.25 + (G.deadHold || 0)) { G.deadHold = 0; if (R.dna <= 0) openDraft(); else respawn(); }
+    if (G.phaseT > 1.25 + (G.deadHold || 0)) { G.deadHold = 0; if (G.eaten) { G.eaten = false; stripMutations(); respawn(); } else if (R.dna <= 0) openDraft(); else respawn(); }
   } else if (G.phase === 'cleared') {
     const g = w.goal; b.x += (g.x - b.x) * Math.min(1, dt * 4); b.y += (g.y - b.y) * Math.min(1, dt * 4);
     if (G.phaseT > 3.9 && !G.iris && !G.leaving) { G.leaving = true; VX.iris(-1, G.ball.x - G.cam.x, G.ball.y - G.cam.y, G.w.garden ? 1.4 : 0.7, () => { G.leaving = false; if (G.w.garden) finish(); else nextLevel(); }); }
   }
 }
-/* lose dna. it turns into the spore the glowcap grows from */
+/* lose DNA; the spore you lose waits for you in the garden */
 function sink() {
   const b = G.ball, w = G.w, R = G.run;
   const sy = surfaceY(w, b.x, b.y) || b.y;
@@ -866,23 +876,18 @@ function sink() {
   VX.sparkBurst(b.x, sy, 14, { angle: -Math.PI / 2, spread: 1.3, speed: 220, col: '#9fd8ff', g: 520, life: 0.55 }); VX.ring(b.x, sy, 28, { col: '#cfefff', speed: 120 }); VX.kick(0.22, 0, 3);
   let cost = Math.round(25 * R.splashCost);
   if (R.secondWind && !G.secondWindUsed) { G.secondWindUsed = true; cost = 0; popup('Second wind!', b.x, sy - 26, '#ffb0c8'); }
-  if (cost > 0) { R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = Math.max(0, R.dna - cost); AU.dnaLoss(); popup(`-${cost} DNA`, G.cam.x + DNA.x + 34, G.cam.y + dnaFillTop(), '#ffb0b0'); }
+  if (cost > 0) { const was = R.dna; R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = Math.max(0, R.dna - cost); CB.noteLoss(was - R.dna); AU.dnaLoss(); popup(`-${cost} DNA`, G.cam.x + DNA.x + 34, G.cam.y + dnaFillTop(), '#ffb0b0'); }
   R.spores++; G.roomSpores++;
   sendSpore(b.x - G.cam.x, sy - G.cam.y);
-  if (R.undertow && R.dna > 0) {
-    let pad = growPad(w, b.x, b.y);
-    if (pad) pad.grow = 0.7;
-    else pad = w.pads.reduce((a, p) => (!a || Math.abs(p.x - b.x) < Math.abs(a.x - b.x)) ? p : a, null);
-    if (pad) {
-      pad.squish = 1; AU.grow(); AU.pad(1);
-      b.x = pad.cx; b.y = pad.cy - pad.r - PHYS.R - 1; b.vx *= 0.4; b.vy = -520;
-      fx('sparkG', pad.cx, pad.sy - 20, { sc: 1.5 }); popup('Undertow!', pad.cx, pad.sy - 44, '#ff8fd8');
-      return;
-    }
+  if (R.undertow && R.dna > 0) {                           // the water throws you back out
+    AU.pad(1);
+    b.y = sy - PHYS.R - 2; b.vx *= 0.4; b.vy = -520;
+    fx('sparkG', b.x, sy - 20, { sc: 1.5 }); popup('Undertow!', b.x, sy - 44, '#ff8fd8');
+    return;
   }
-  G.phase = 'dead'; G.phaseT = 0; G.padGrown = false; G.sinkX = b.x; G.sinkY = b.y;
+  G.phase = 'dead'; G.phaseT = 0; G.sinkX = b.x; G.sinkY = b.y;
 }
-function die(manual) { if (manual) { G.phase = 'dead'; G.phaseT = 0.45; G.padGrown = true; AU.pop(); } }
+function die(manual) { if (manual) { G.phase = 'dead'; G.phaseT = 0.45; AU.pop(); } }
 function respawn() {
   G.ball = makeBall(G.lastSafe.x, G.lastSafe.y); resetAirCharges(); G.iframes = 1.6;
   if (G.oracleNext > 1e8) G.oracleNext = G.roomT + 6;
@@ -893,10 +898,10 @@ function respawn() {
 function lostInDark() {
   const R = G.run; let cost = Math.round(15 * R.splashCost);
   if (R.secondWind && !G.secondWindUsed) { G.secondWindUsed = true; cost = 0; }
-  R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = Math.max(0, R.dna - cost); if (cost) AU.dnaLoss();
+  const was = R.dna; R.dnaLag = Math.max(R.dnaLag, R.dnaShown); R.dna = Math.max(0, R.dna - cost); CB.noteLoss(was - R.dna); if (cost) AU.dnaLoss();
   popup(cost ? `The dark took ${cost} DNA` : 'Second wind!', G.ball.x, G.ball.y - 20, cost ? '#b0b8ff' : '#ffb0c8');
   R.spores++; G.roomSpores++;
-  G.phase = 'dead'; G.phaseT = 0.45; G.padGrown = true;
+  G.phase = 'dead'; G.phaseT = 0.45;
 }
 function artifactFound() {
   G.phase = 'cleared'; G.phaseT = 0;
@@ -924,7 +929,7 @@ function startGarden() {
   G.aim = null; G.kbAim.on = false; G.state = 'play'; G.paused = false; G.roomSpores = 0;
   G.oracle = null; G.oracleNext = 1e9; G.facing = 1; G.askCd = 0;
   G.cam.x = G.ball.x - VW / 2; G.cam.y = G.ball.y - VH * 0.55;
-  G.prog = 1; CB.reset(); G.deadHold = 0; G.elderPad = null; G.lockCam = false;
+  G.prog = 1; CB.reset(); G.deadHold = 0; G.lockCam = false;
   chunkCache.clear();
   // a glowcap for every spore u left behind, spread across the valley
   const n = Math.min(44, Math.max(3, R.spores)), slots = [];
@@ -1027,7 +1032,8 @@ function cardPos(i) { return { x: VW / 2 - (3 * CW + 2 * 22) / 2 + i * (CW + 22)
 const DEAL = i => 0.12 * i, FLIP = i => 0.6 + 0.24 * i;
 function openDraft() {
   G.phase = 'draft'; G.phaseT = 0; G.oracle = null;
-  G.draft = { cards: draftCards(G.run), t: 0, hover: -1, sel: 1, picked: -1, pickT: 0, revealed: [false, false, false] };
+  let first = false; try { first = !localStorage.getItem('sporebound_draftseen'); localStorage.setItem('sporebound_draftseen', '1'); } catch (e) { }
+  G.draft = { cards: draftCards(G.run), t: 0, hover: -1, sel: 1, picked: -1, pickT: 0, revealed: [false, false, false], first };
   AU.drain();
 }
 function draftReady() { return G.draft && G.draft.picked < 0 && G.draft.t > FLIP(2) + 0.3; }
@@ -1076,7 +1082,14 @@ function renderDraft(t) {
   ctx.globalAlpha = out;
   if (draftReady()) text('Click a card  -  or arrows + Space  -  or 1 2 3', VW / 2, 284, 1, MEM.dim, 'center');
   const R = G.run;
-  if (R.order.length) {
+  if (D.first) {                                   // the first time: say plainly what just happened and why
+    ctx.globalAlpha = out * Math.min(1, Math.max(0, D.t - 0.8) * 2);
+    membrane(VW / 2 - 225, 298, 450, 58, 12, { dots: 8 });
+    text('Your DNA ran out, so you died. But you grow back changed.', VW / 2, 306, 1, '#ffe2a8', 'center');
+    text('Every death lets you pick one mutation, and it stays for the whole run.', VW / 2, 320, 1, MEM.text, 'center');
+    text('The water and rivals drain DNA. The Elder can eat your mutations.', VW / 2, 334, 1, MEM.dim, 'center');
+    ctx.globalAlpha = out;
+  } else if (R.order.length) {
     const s = 'Mutations: ' + R.order.map(id => MUT[id].name + (R.owned[id] > 1 ? ' x' + R.owned[id] : '')).join(', ');
     wrapText(s, 560).slice(0, 3).forEach((ln, i) => text(ln, VW / 2, 304 + i * 11, 1, '#6f9a90', 'center'));
   }
@@ -1180,29 +1193,33 @@ function buildMaskPortrait() {
   return c;
 }
 let maskPortrait = null;
-const WHISPERS = {
-  forward: ['Your path lies ahead. Do not look back.', 'Onward, little one. The garden is not behind you.', 'What you seek waits further along.', 'Forward. Always forward.', 'Keep rolling the way you face.'],
-  back: ['You have wandered too far. Turn back.', 'The way is behind you.', 'Retrace your roll, little spore.', 'Not this way. Turn around.', 'Sometimes the path returns to where it began.'],
-  up: ['Your path requires an ascent.', 'Look up. The way is above you.', 'Climb, little one. The light rests high.', 'What you seek waits above the roots.', 'Rise.'],
+const WHISPERS = {   // always left/right/up/down from where you are, never "behind"
+  right: ['Your path lies to the right.', 'Rightward, little one.', 'What you seek waits to the right.', 'Go right. Keep going.', 'The way bends right.'],
+  left: ['Your path lies to the left.', 'Leftward, little one.', 'What you seek waits to the left.', 'Go left. Keep going.', 'The way bends left.'],
+  up: ['Your path requires an ascent.', 'Look up. The way is above you.', 'Climb, little one. The light rests high.', 'What you seek waits above you.', 'Rise.'],
   down: ['Your path requires a descent.', 'The way lies below you.', 'Descend, little one. But mind the water.', 'What you seek is beneath you.', 'Lower. Lower still.'],
   near: ['You are close. So very close.', 'It is right before you.', 'Reach out. It is almost yours.'],
-  'up+forward': ['Ascend, then press onward.', 'Up, and further along.'], 'up+back': ['Climb, little one, and turn around.', 'Rise. Then go back the way you came.'],
-  'down+forward': ['Descend, then keep going.', 'Down and onward.'], 'down+back': ['Turn back, and sink lower.', 'Behind you, and beneath.'],
+  'up+right': ['Up, and to the right.', 'Climb, then go right.'], 'up+left': ['Up, and to the left.', 'Climb, then go left.'],
+  'down+right': ['Down, and to the right.', 'Descend, then go right.'], 'down+left': ['Down, and to the left.', 'Descend, then go left.'],
 };
+const FAR = [[1100, 'It is far, far away.'], [550, 'It is a long way still.'], [250, 'Not far now.'], [0, 'It is close.']];
 function whisperDirection() {
   const b = G.ball, g = G.w.goal, dx = g.x - b.x, dy = g.y - b.y;
   if (Math.hypot(dx, dy) < 70) return 'near';
-  const h = Math.sign(dx) === G.facing ? 'forward' : 'back';
+  const h = dx > 0 ? 'right' : 'left';
   const v = dy < -64 ? 'up' : dy > 48 ? 'down' : null;
-  if (v && Math.abs(dx) > 120 && Math.abs(dy) > Math.abs(dx) * 0.35 && Math.random() < 0.6) return v + '+' + h;
+  if (v && Math.abs(dx) > 120 && Math.abs(dy) > Math.abs(dx) * 0.35) return v + '+' + h;
   if (v && Math.abs(dy) > Math.abs(dx) * 0.5) return v;
   return h;
 }
+/* the hooded one won't help you dodge level 1's Elder, and goes quiet while anything hunts you */
+function canListen() { return !CB.elderActive() && !(G.w && G.w.garden) && !(G.level === 0 && G.run && !G.run.elderDone); }
 function summonOracle() {
   const dir = whisperDirection(), pool = WHISPERS[dir];
   let line = pool[Math.floor(Math.random() * pool.length)];
   if (G.oracle && G.oracle.line === line && pool.length > 1) line = pool[(pool.indexOf(line) + 1) % pool.length];
-  G.oracle = { line, t: 0, dur: 1.2 + line.length * 0.045 + 3.2, chars: 0 };
+  if (dir !== 'near') { const d = Math.hypot(G.w.goal.x - G.ball.x, G.w.goal.y - G.ball.y); line += ' ' + FAR.find(([m]) => d >= m)[1]; }
+  G.oracle = { line, t: 0, dur: 1.2 + line.length * 0.045 + 3.2, chars: 0, guide: true };
   AU.oracle();
 }
 function updateOracle(dt) {
@@ -1393,6 +1410,8 @@ function drawBall(b, t, alpha = 1) {
   }
   ctx.globalAlpha = 1;
 }
+/* how far the aim arc reaches: the whole flight on the first two levels, then shorter and shorter */
+const ARC_BY_LEVEL = [7, 7, 2.4, 1.8, 1.4, 1.15, 1];
 function drawAim(t) {
   const v = currentAim(); if (!v || v.p < 0.02) return;
   const b = G.ball, w = G.w;
@@ -1411,11 +1430,20 @@ function drawAim(t) {
     }
   }
   let x = b.x, y = b.y, vx = v.vx, vy = v.vy;
-  const dt = 1 / 60, g = PHYS.G * (R ? R.mods.grav : 1), steps = Math.round(34 * (R ? R.preview : 1));
+  const arc = ARC_BY_LEVEL[G.level] ?? 1, full = arc >= 7;
+  const dt = 1 / 60, g = PHYS.G * (R ? R.mods.grav : 1), steps = Math.min(260, Math.round(34 * (R ? R.preview : 1) * arc));
   for (let i = 0; i < steps && !(R && R.trueSight); i++) {
     vy += g * dt; x += vx * dt; y += vy * dt;
     const tc = tileAt(w, Math.floor(x / TS), Math.floor(y / TS));
-    if (tc === '#' || tc === '~' || (!w.infinite && (x < 0 || x > VW))) break;
+    if (tc === '#' || tc === '~' || (!w.infinite && (x < 0 || x > VW))) {
+      if (full) {                                   // early levels: mark exactly where you'll land
+        const lx = Math.round(x - vx * dt), ly = Math.round(y - vy * dt), r = 4 + Math.sin(t * 8) * 0.8;
+        ctx.globalAlpha = 0.9; ctx.fillStyle = tc === '~' ? '#7fc8ff' : '#eaff8a';
+        for (let k = 0; k < 12; k++) { const a = k / 12 * Math.PI * 2 + t * 2; if (k % 2 === 0) ctx.fillRect(Math.round(lx + Math.cos(a) * r), Math.round(ly + Math.sin(a) * r), 1, 1); }
+        ctx.fillRect(lx - 1, ly - 1, 2, 2);
+      }
+      break;
+    }
     if (i % 3 === 0) {
       ctx.globalAlpha = 1 - i / (steps + 6);
       ctx.fillStyle = '#1a1424'; ctx.fillRect(Math.round(x) - 2, Math.round(y) - 2, 4, 4);
@@ -1427,13 +1455,79 @@ function drawAim(t) {
   ctx.fillStyle = '#1a1424'; ctx.fillRect(bx - 1, by - 1, bw + 2, 5);
   const pc = v.p > 0.85 ? '#ff8a6a' : v.p > 0.5 ? '#ffd86b' : '#9fe08a';
   ctx.fillStyle = pc; ctx.fillRect(bx, by, Math.round(bw * v.p), 3);
+  const L = Math.hypot(v.vx, v.vy) || 1, ux = v.vx / L, uy = v.vy / L;
   if (G.aim) {
     const bucket = Math.floor(v.p * 10);
     if (bucket !== G.aim.lastBucket) { G.aim.lastBucket = bucket; AU.tick(); }
-    ctx.strokeStyle = 'rgba(255,246,224,0.35)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(G.aim.sx + 0.5, G.aim.sy + 0.5); ctx.lineTo(G.aim.x + 0.5, G.aim.y + 0.5); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,246,224,0.6)'; ctx.fillRect(Math.round(G.aim.sx) - 1, Math.round(G.aim.sy) - 1, 3, 3);
+    // the pull band: two strands from either side of the spore back to where you're pulling
+    const pull = 10 + v.p * 40, hx = b.x - ux * pull, hy = b.y - uy * pull, nx = -uy * 5, ny = ux * 5;
+    const band = (x0, y0, x1, y1) => { const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0)); for (let i = 0; i <= n; i++) ctx.fillRect(Math.round(x0 + (x1 - x0) * i / n), Math.round(y0 + (y1 - y0) * i / n), 1, 1); };
+    ctx.globalAlpha = 0.9; ctx.fillStyle = '#1a1424';
+    band(b.x + nx + 1, b.y + ny + 1, hx + 1, hy + 1); band(b.x - nx + 1, b.y - ny + 1, hx + 1, hy + 1);
+    ctx.fillStyle = pc; band(b.x + nx, b.y + ny, hx, hy); band(b.x - nx, b.y - ny, hx, hy);
+    ctx.fillStyle = '#1a1424'; ctx.fillRect(Math.round(hx) - 2, Math.round(hy) - 2, 5, 5);
+    ctx.fillStyle = '#fff6e0'; ctx.fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 3, 3);
+    ctx.globalAlpha = 1;
   }
+  // a bright arrow out the front: this is the way you'll fly
+  const a0 = 9, a1 = 16 + v.p * 18, tx = b.x + ux * a1, ty = b.y + uy * a1, pulse = 0.75 + Math.sin(t * 10) * 0.25;
+  for (const [col, o] of [['#1a1424', 1], [pc, 0]]) {
+    ctx.fillStyle = col; ctx.globalAlpha = o ? 0.8 : pulse;
+    for (let d = a0; d <= a1; d++) { ctx.fillRect(Math.round(b.x + ux * d) - 1 + o, Math.round(b.y + uy * d) - 1 + o, 2, 2); }
+    for (let k = 1; k <= 5; k++) for (const sgn of [-1, 1]) {
+      const qx = tx - ux * k + (-uy) * sgn * k * 0.9, qy = ty - uy * k + ux * sgn * k * 0.9;
+      ctx.fillRect(Math.round(qx) - 1 + o, Math.round(qy) - 1 + o, 2, 2);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+/* the fling lesson: a ghost hand grabs the spore, pulls back away from where you need to go, lets go */
+const HAND = ['..##.....', '.#ww#....', '.#ww#....', '.#ww###..', '.#wwwww##', '##wwwwww#', '#wwwwwww#', '#wwwwwww#', '.#wwwww#.', '..#####..'];
+/* while the hooded one gives directions, a pale arrow circles the spore and points at the artifact */
+let guideA = 0;
+function drawGuide(t, dt) {
+  const on = G.oracle && G.oracle.guide && G.phase === 'play' && G.ball && G.w && G.w.goal;
+  guideA = Math.max(0, Math.min(1, guideA + (on ? dt * 3 : -dt * 1.5)));
+  if (guideA <= 0 || !G.ball || !G.w || !G.w.goal) return;
+  const b = G.ball, g = G.w.goal, dx = g.x - b.x, dy = g.y - b.y, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L;
+  if (L < 40) return;
+  const r = 30 + Math.sin(t * 5) * 3, tx = b.x + ux * r, ty = b.y + uy * r, px_ = -uy, py_ = ux;
+  for (const [col, o] of [['#1a1424', 1], ['#e6dcff', 0]]) {           // a filled chevron with a dark outline
+    ctx.globalAlpha = guideA * (o ? 0.75 : 1); ctx.fillStyle = col;
+    for (let k = 0; k <= 16; k++) {                                     // head (k < 9) tapering to a point, then a short shaft
+      const hw = k < 9 ? k * 0.5 : 1;
+      for (let s2 = -hw; s2 <= hw; s2 += 0.5) ctx.fillRect(Math.round(tx - ux * k + px_ * s2) + o, Math.round(ty - uy * k + py_ * s2) + o, 1, 1);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+function drawTutorial(t, dt) {
+  const show = G.level === 0 && TUT.flings < 2 && G.phase === 'play' && G.run && !CB.elderActive();
+  TUT.fade = Math.max(0, Math.min(1, TUT.fade + (show && !G.aim && !G.kbAim.on ? dt * 2 : -dt * 4)));
+  if (!show) TUT.t = 0; else TUT.t += dt;
+  if (TUT.fade <= 0 || !G.ball) return;
+  const b = G.ball, dir = Math.sign(G.w.goal.x - b.x) || 1, k = (TUT.t % 2.4) / 2.4;
+  // 0-.15 reach in, .15-.6 pull back, .6-.7 hold, .7 let go, then fade
+  const pullK = k < 0.15 ? 0 : k < 0.6 ? (k - 0.15) / 0.45 : k < 0.7 ? 1 : 0;
+  const ease = 1 - (1 - pullK) ** 2, ox = -dir * 34 * ease, oy = 20 * ease;
+  const ha = TUT.fade * (k < 0.08 ? k / 0.08 : k > 0.85 ? (1 - k) / 0.15 : 1) * 0.9;
+  if (pullK > 0) {                                  // the band and the arc it promises
+    ctx.globalAlpha = ha * 0.8; ctx.fillStyle = '#ffd86b';
+    const n = Math.ceil(Math.hypot(ox, oy) / 2); for (let i = 0; i < n; i += 1) ctx.fillRect(Math.round(b.x + ox * i / n), Math.round(b.y + oy * i / n), 1, 1);
+    ctx.globalAlpha = ha * 0.6 * ease; ctx.fillStyle = '#eaff8a';
+    for (let i = 3; i < 16; i++) { const s = i * 0.05; ctx.fillRect(Math.round(b.x + dir * 150 * s * ease), Math.round(b.y - 230 * s * ease + 0.5 * 600 * s * s), 1, 1); }
+  } else if (k >= 0.7) {                            // let go: a little burst where the spore would leap
+    ctx.globalAlpha = ha * (1 - (k - 0.7) / 0.3); ctx.fillStyle = '#fff6e0';
+    const r = 6 + (k - 0.7) * 40; for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; ctx.fillRect(Math.round(b.x + Math.cos(a) * r), Math.round(b.y + Math.sin(a) * r), 1, 1); }
+  }
+  const hx = Math.round(b.x + ox - 5), hy = Math.round(b.y + oy - 1), grab = pullK > 0 && k < 0.7;
+  ctx.globalAlpha = ha;                             // drawn at 2x so it reads as a pointer, not a speck
+  HAND.forEach((row, j) => { for (let i = 0; i < row.length; i++) { const ch = row[i]; if (ch === '.') continue; ctx.fillStyle = ch === '#' ? '#1a1424' : grab ? '#fff6e0' : '#e8dcc0'; ctx.fillRect(hx + i * 2, hy + j * 2 + (grab ? 1 : 0), 2, 2); } });
+  ctx.globalAlpha = TUT.fade;
+  const label = TUT.flings === 0 ? 'pull back, let go' : 'nice. once more';
+  const lw = textWidth(label) + 14, lx = Math.round(b.x - lw / 2), ly = Math.round(b.y - 36);
+  pill(lx, ly, lw); text(label, b.x, ly + 3, 1, MEM.text, 'center');
+  ctx.globalAlpha = 1;
 }
 function drawParticles(dt) {
   for (let i = G.particles.length - 1; i >= 0; i--) {
@@ -1709,6 +1803,8 @@ function renderPlay(t, dt) {
   drawSporeDrift(t, dt);
   for (const [ccx, ccy, c] of vis) ctx.drawImage(c.wat, ccx * CHUNK_PX, ccy * CHUNK_PX);
   if (G.phase === 'play' && (G.aim || G.kbAim.on)) drawAim(t);
+  drawTutorial(t, dt);
+  drawGuide(t, dt);
   if (G.phase === 'play' && G.mouse && !G.touch && !G.aim) CB.drawReticle(ctx, G.mouse.x + cx, G.mouse.y + cy, t);
   drawFX(dt);
   drawParticles(dt);
@@ -1744,10 +1840,10 @@ function renderPlay(t, dt) {
   drawDNABar(t);
   drawOracle(t);
   drawTouchButtons();
-  if (!G.oracle && G.phase === 'play' && G.askCd <= 0 && !G.touch && !CB.elderActive() && !G.w.garden) text('Q: listen', 34, VH - 14, 1, 'rgba(200,190,255,0.55)', 'left', null);
+  if (!G.oracle && G.phase === 'play' && G.askCd <= 0 && !G.touch && canListen()) text('Q: listen', 34, VH - 14, 1, 'rgba(200,190,255,0.55)', 'left', null);
   if (G.roomT < 8 && G.phase === 'play' && G.level === 0 && !G.touch) {
     ctx.globalAlpha = Math.min(1, (8 - G.roomT) / 1.5);
-    const hint = 'A/D roll  -  Space hop  -  drag to fling (again mid-air)  -  click to blast toxin';
+    const hint = TUT.flings < 2 ? 'A/D roll  -  Space hop  -  click to blast toxin' : 'A/D roll  -  Space hop  -  drag to fling (again mid-air)  -  click to blast toxin';
     const hw = textWidth(hint) + 16; pill(VW / 2 - hw / 2, 24, hw); text(hint, VW / 2, 27, 1, MEM.text, 'center'); ctx.globalAlpha = 1;
   }
   if (G.roomT < 2.6 && G.phase === 'play') {
@@ -1772,10 +1868,15 @@ function renderPlay(t, dt) {
   renderDraft(t);
   if (G.paused) {
     ctx.fillStyle = 'rgba(6,16,18,0.6)'; ctx.fillRect(0, 0, VW, VH);
-    membrane(VW / 2 - 120, 150, 240, 74, 14, { dots: 10 });
+    membrane(VW / 2 - 120, 150, 240, 96, 14, { dots: 10 });
     text('Paused', VW / 2, 160, 2, '#9ff4dc', 'center');
-    text(G.touch ? 'Tap to keep going' : 'Esc, P, Space or click to keep going', VW / 2, 192, 1, MEM.text, 'center');
-    text(AU.muted ? 'M: sound is off' : 'M: sound is on', VW / 2, 206, 1, MEM.dim, 'center');
+    text(G.touch ? 'Tap to keep going' : 'Esc, P, Space or click to keep going', VW / 2, 188, 1, MEM.text, 'center');
+    text(AU.muted ? 'M: sound is off' : 'M: sound is on', VW / 2, 200, 1, MEM.dim, 'center');
+    // fling sensitivity:  <  ■ ■ ■ □ □  >
+    const ry = SENS_ROW.y;
+    text('<', SENS_ROW.l, ry - 4, 1, sensI > 0 ? '#9ff4dc' : MEM.dim, 'center'); text('>', SENS_ROW.r, ry - 4, 1, sensI < SENS.length - 1 ? '#9ff4dc' : MEM.dim, 'center');
+    for (let i = 0; i < SENS.length; i++) { ctx.fillStyle = i <= sensI ? '#9ff4dc' : '#2c4a46'; ctx.fillRect(VW / 2 - 30 + i * 12, ry - 2, 8, 6); }
+    text(G.touch ? 'Fling sensitivity' : 'Fling sensitivity  (A / D)', VW / 2, ry + 10, 1, MEM.dim, 'center');
   }
 }
 
