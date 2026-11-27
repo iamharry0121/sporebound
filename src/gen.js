@@ -417,7 +417,7 @@ function makeGarden() {
   }
   const flat = (x, y, w) => { for (let i = 0; i < w; i++) if (structural(x + i, y) !== '#' || structural(x + i, y - 1) !== '.') return false; return true; };
   const CAPS = [-52, -26, 34, 58], FOOT = { rockS: [0, 27], rockMoss: [0, 63], tree: [38, 68], pillarB: [0, 25], rockM: [2, 52] };
-  const DECO = [['tree', -48], ['rockMoss', -38], ['rockS', -20], ['pillarB', 12], ['rockM', 26], ['tree', 40], ['rockMoss', 48]];
+  const DECO = [['tree', -48], ['rockMoss', -38], ['rockS', -20], ['rockM', 26], ['tree', 40], ['rockMoss', 48]];
   const chunks = new Map();
   function chunk(cx, cy) {
     const k = cx + ',' + cy; let c = chunks.get(k);

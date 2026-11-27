@@ -1032,7 +1032,7 @@ function startGarden() {
     const tx = slots[Math.floor((i + 0.5) / n * slots.length)], sy = ga(tx) * TS, ps = 0.75 + hash(i * 7 + 3) * 0.55, x = tx * TS + 8;
     w.pads.push({ x, sy, cx: x, cy: sy - 2 - 19 * (ps - 1), r: 21 * ps, scale: ps, grow: 0, squish: 0, delay: 0.8 + Math.abs(tx + 58) * 0.035 });
   }
-  G.garden = { peds: G.artifacts.map(i => ({ i, x: PEDESTALS[i] * TS + 8, y: ga(PEDESTALS[i]) * TS, near: 0 })), elder: { x: -5 * TS + 8, gy: ga(-5) * TS, hug: 0, near: false, hugged: false }, petals: [], hearts: [], nameT: -1, done: false };
+  G.garden = { peds: G.artifacts.map(i => ({ i, x: PEDESTALS[i] * TS + 8, y: ga(PEDESTALS[i]) * TS, near: 0 })), elder: { x: -5 * TS + 8, gy: ga(-5) * TS, hug: 0, near: false, hugged: false }, petals: [], hearts: [], motes: [], lens: [], nameT: -1, done: false };
   window.GEN.loadAround(w, G.ball.x, G.ball.y, 3);
   resetAirCharges();
   VX.clear(); G.fade = 0; G.leaving = false; VX.iris(1, VW / 2, VH * 0.55, 1.2);
@@ -1070,6 +1070,15 @@ function gardenUpdate(dt) {
   }
   for (const q of g.petals) { q.t += dt; q.ph += dt * 3; q.x += (q.vx + Math.sin(q.ph) * 16) * dt; q.y += q.vy * dt; }
   g.petals = g.petals.filter(q => q.t < 9 && q.y < ty + 30);
+  if (Math.random() < dt * 9) {
+    const x = G.cam.x + Math.random() * VW;
+    g.motes.push({ x, y: ty + 10 - Math.random() * 30, vx: (Math.random() - 0.5) * 6, ph: Math.random() * 6, t: 0, life: 5 + Math.random() * 4, c: ['#9ff4dc', '#ffc4df', '#fff0d8', '#c9a8ff'][Math.floor(Math.random() * 4)] });
+  }
+  for (const m of g.motes) { m.t += dt; m.y -= (9 + Math.sin(m.ph) * 3) * dt; m.x += (m.vx + Math.sin(m.t * 1.3 + m.ph) * 5) * dt; }
+  g.motes = g.motes.filter(m => m.t < m.life);
+  if (Math.random() < dt * 1.4) g.lens.push({ x: VW + 10, y: Math.random() * VH * 0.8, vx: -60 - Math.random() * 50, vy: 20 + Math.random() * 20, ph: Math.random() * 6, c: Math.random() < 0.5 ? '#ffc4df' : '#f59bc8' });
+  for (const q of g.lens) { q.ph += dt * 4; q.x += q.vx * dt; q.y += (q.vy + Math.sin(q.ph) * 30) * dt; }
+  g.lens = g.lens.filter(q => q.x > -10 && q.y < VH + 10);
   if (g.nameT >= 0) g.nameT += dt;
 }
 const FINALE = 'You fell, and every time you fell, something grew. Look how much you grew. Bounce back, little spore. Always.';
@@ -1120,59 +1129,152 @@ function drawFigure(x, y, t) {
   ctx.drawImage(figureCanvas, Math.round(x - 20), y - 66 + bob);
   for (let k = 0; k < 6; k++) { const a = t * 0.8 + k * 1.05, r = 24; ctx.fillStyle = k % 2 ? '#c9a2ff' : '#fff2cc'; ctx.fillRect(Math.round(x + Math.cos(a) * r), Math.round(y - 34 + Math.sin(a) * r * 0.45 + bob), 1, 1); }
 }
-/* the great cherry tree at the heart of the garden */
+/* the great cherry tree at the heart of the garden: drawn at half res, shown at 2x */
 let blossomCanvas = null;
 function buildBlossom() {
-  const W = 380, H = 290, c = document.createElement('canvas'); c.width = W; c.height = H;
-  const x2 = c.getContext('2d'), mask = new Uint8Array(W * H), put = (x, y, col) => { x2.fillStyle = col; x2.fillRect(x, y, 1, 1); };
-  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const BARK = ['#120b16', '#1f1422', '#2f1f30', '#46303f'], blooms = [];
-  function branch(x, y, a, len, wd, d) {
-    const steps = Math.ceil(len);
-    for (let i = 0; i < steps; i++) {
-      const k = i / steps, r = wd * (1 - k * 0.35), bx = x + Math.cos(a) * i, by = y + Math.sin(a) * i + Math.sin(k * 3 + d) * 1.5;
-      for (let oy = -r; oy <= r; oy++) for (let ox = -r; ox <= r; ox++) if (ox * ox + oy * oy <= r * r) {
-        const li = 0.5 - ox / (r + 0.01) * 0.4 - oy / (r + 0.01) * 0.15 + (((bx + ox) * 3 + (by + oy)) % 5 < 1 ? -0.2 : 0);
-        put(Math.round(bx + ox), Math.round(by + oy), BARK[Math.max(0, Math.min(3, Math.floor(li * 4)))]);
-      }
-    }
-    const ex = x + Math.cos(a) * len, ey = y + Math.sin(a) * len;
-    if (d === 0 || wd < 1.2) { blooms.push([ex, ey, 20 + rnd() * 14]); return; }
-    if (d < 3) blooms.push([ex, ey, 24 + rnd() * 12]);
-    const n = d > 3 ? 2 : 2 + (rnd() < 0.5 ? 1 : 0);
-    for (let i = 0; i < n; i++) branch(ex, ey, a + (i - (n - 1) / 2) * (0.55 + rnd() * 0.3) + (rnd() - 0.5) * 0.3, len * (0.68 + rnd() * 0.12), wd * 0.66, d - 1);
+  const W = 200, H = 170, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x2 = c.getContext('2d'), put = (x, y, col) => { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= W || y >= H) return; x2.fillStyle = col; x2.fillRect(x, y, 1, 1); };
+  let seed = 21; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const P = ['#6a2050', '#94306c', '#c24a8c', '#e073ad', '#f59bc8', '#ffc4df', '#ffe4ef', '#fff6e4'];
+  const BARK = ['#160c18', '#2a1a2c', '#3d2a40', '#57405a', '#6e5674'], VEIN = '#9ff4dc';
+  const limbs = [], clusters = [];
+  function limb(x, y, a, len, wd, d) {
+    const pts = []; let bx = x, by = y, aa = a;
+    for (let i = 0; i < len; i++) { aa += (rnd() - 0.5) * 0.12 + Math.sin(i * 0.15 + d) * 0.02; bx += Math.cos(aa); by += Math.sin(aa); pts.push([bx, by, Math.max(0.6, wd * (1 - i / len * 0.45))]); }
+    limbs.push({ pts, d });
+    if (d >= 1 && d <= 3) for (let k = 0; k < 2; k++) { const p = pts[Math.floor(len * (0.5 + k * 0.4)) - 1]; clusters.push([p[0], p[1], 6 + rnd() * 6]); }
+    if (d === 0) { clusters.push([bx, by, 7 + rnd() * 6]); return; }
+    const n = d === 4 ? 3 : d >= 3 ? 2 : 3;
+    for (let i = 0; i < n; i++) limb(bx, by, aa + (i - (n - 1) / 2) * 0.7 * (d === 4 ? 1.35 : 1) + (rnd() - 0.5) * 0.35, (d === 4 ? 40 : len) * (0.68 + rnd() * 0.15), wd * 0.6, d - 1);
   }
-  for (let r = 0; r < 14; r++) { const ox = (r - 6.5) * 3; branch(W / 2 + ox, H - 1, -Math.PI / 2 + ox * 0.03, 8, 2.5 + (6.5 - Math.abs(r - 6.5)) * 0.35, 0); }   // roots flare into the ground
-  blooms.length = 0;
-  branch(W / 2, H - 2, -Math.PI / 2, 84, 14, 5);
-  const P = ['#4a1f3c', '#7d3260', '#b5517f', '#e083ad', '#ffbcd9', '#fff0f6'];
+  limb(W / 2, H - 14, -Math.PI / 2 + 0.08, 40, 10, 4);
+  for (let y = H - 16; y < H - 6; y++) for (let x = 0; x < W; x++) {      // shadow pool under the roots
+    const dx = (x - W / 2) / 62, dy = (y - (H - 11)) / 5, d = dx * dx + dy * dy;
+    if (d < 1 && hash(x * 7.1 + y * 3.3) < 1.25 - d) put(x, y, d < 0.35 ? '#1c1424' : hash(x + y * 9) < 0.5 ? '#2a1e36' : '#3a2c48');
+  }
+  for (let r = 0; r < 8; r++) { const s = r % 2 ? 1 : -1, k = r >> 1; let x = W / 2 + s * (3 + k * 2), y = H - 14 - k; for (let i = 0; i < 10 + k * 6; i++) { x += s * (1 - i * 0.02); y += 0.18; const rr = Math.max(0.6, (5 - k) * (1 - i / 22)); for (let oy = -rr; oy <= rr; oy++) for (let ox = -rr; ox <= rr; ox++) if (ox * ox + oy * oy <= rr * rr + 0.3) put(x + ox, y + oy, BARK[oy < 0 ? 2 : 1]); } }
+  for (const L of limbs) for (const [px, py, r] of L.pts) for (let oy = -r; oy <= r; oy++) for (let ox = -r; ox <= r; ox++) if (ox * ox + oy * oy <= r * r + 0.3) {
+    const li = r < 1.6 ? 0 : 0.55 - ox / (r + 0.5) * 0.45 + (hash((px + ox) * 2.3 + (py + oy) * 5.9) < 0.15 ? -0.25 : 0);
+    put(px + ox, py + oy, BARK[Math.max(0, Math.min(4, Math.floor(li * 5)))]);
+  }
+  const dens = new Float32Array(W * H), own = new Int16Array(W * H).fill(-1), cx0 = W / 2, cy0 = H * 0.34;
+  clusters.forEach(([cx, cy, r], ci) => { for (let y = Math.floor(cy - r - 2); y <= cy + r + 2; y++) for (let x = Math.floor(cx - r - 2); x <= cx + r + 2; x++) {
+    if (x < 0 || y < 0 || x >= W || y >= H) continue;
+    const d = Math.hypot(x - cx, (y - cy) * 1.15) / r; if (d < 1.15 && 1.15 - d > dens[y * W + x]) { dens[y * W + x] = 1.15 - d; own[y * W + x] = ci; }
+  } });
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    let f = 0, lx = 0, ly = 0;
-    for (const [bx, by, br] of blooms) { const dx = x - bx, dy = y - by, u = 1 - (dx * dx + dy * dy) / (br * br); if (u > 0) { const q = u * u; f += q; lx -= dx * q / br; ly -= dy * q / br; } }
-    const n = hash((x >> 1) * 13.1 + (y >> 1) * 71.7) * 0.7 + hash(x * 3.7 + y * 19.3) * 0.3;
-    if (f < 0.12 + n * 0.25) continue;
-    mask[y * W + x] = 1;
-    const ll = Math.hypot(lx, ly) || 1, li = 0.3 + Math.min(0.3, f * 0.25) + (lx + ly) / ll * -0.05 - (ly / ll) * 0.2 - (lx / ll) * 0.12 + (n - 0.5) * 0.25 - (y / H) * 0.12;
-    put(x, y, P[Math.max(0, Math.min(5, Math.floor(li * 6)))]);
+    const f = dens[y * W + x]; if (!f) continue;
+    const n = hash(x * 12.9 + y * 78.2), n2 = hash((x >> 1) * 5.1 + (y >> 1) * 17.3);
+    if (f < 0.15 + n * 0.35 && !(f > 0.02 && n < 0.06)) continue;          // ragged, scattered edge
+    if (f > 0.25 && n2 < 0.05 && y > cy0) continue;                      // little holes show the branches
+    const gx = (x - cx0) / 80, gy = (y - cy0) / 55, [kx, ky, kr] = clusters[own[y * W + x]];
+    const lx = (x - kx) / kr, ly = (y - ky) / kr;
+    const li = 0.3 + f * 0.2 - (lx + ly) * 0.22 - gy * 0.25 - gx * 0.08 + (n2 - 0.5) * 0.25 + Math.max(0, -gy - 0.2) * 0.9;
+    put(x, y, P[Math.max(0, Math.min(6, Math.floor(li * 7)))]);
   }
-  for (let x = 0; x < W; x++) for (let y = H - 2; y > 0; y--) if (mask[y * W + x] && !mask[(y + 1) * W + x] && hash(x * 5.3 + y) < 0.35) {    // blossoms hang off the underside
-    const L = 2 + Math.floor(hash(x * 1.7 + y * 3.1) * 9);
-    for (let k = 1; k <= L && y + k < H; k++) if (k % 3 !== 0 || k === L) put(x, y + k, k === L ? '#ffbcd9' : P[2 + (k & 1)]);
+  for (let k = 0; k < 150; k++) {      // pale blossoms on the lit side
+    const [cx, cy, r] = clusters[Math.floor(rnd() * clusters.length)], a = -2.3 + (rnd() - 0.5) * 2.4, rr = rnd() * r * 0.8, x = Math.round(cx + Math.cos(a) * rr), y = Math.round(cy + Math.sin(a) * rr);
+    if (dens[y * W + x] < 0.3) continue;
+    put(x, y, P[7]); put(x + 1, y, P[7]); put(x, y + 1, P[6]); put(x + 1, y + 1, P[6]); if (rnd() < 0.5) put(x - 1, y, P[6]); if (rnd() < 0.5) put(x + 1, y - 1, P[6]);
   }
-  return c;
+  for (const L of limbs) if (L.d <= 3) L.pts.forEach(([px, py, r]) => { if (hash(px * 3 + py * 11) < (L.d >= 2 ? 0.55 : 0.3)) { put(px, py, BARK[0]); if (r > 1.4) put(px + 1, py, BARK[1]); } });
+  for (let k = 0; k < 40; k++) { const a = rnd() * 6.28, r = 50 + rnd() * 30; put(cx0 + Math.cos(a) * r * 1.2, cy0 + Math.sin(a) * r * 0.7 + 10, P[3 + (k % 3)]); }
+  // veins go on their own layer so they can pulse
+  const v = document.createElement('canvas'); v.width = W; v.height = H; const vx = v.getContext('2d'); vx.fillStyle = VEIN;
+  for (const L of limbs) if (L.d >= 3) L.pts.forEach(([px, py, r], i) => { if (r > 1.5 && hash(i * 1.7 + L.d) < 0.6) vx.fillRect(Math.round(px + Math.sin(i * 0.35) * r * 0.45), Math.round(py), 1, 1); });
+  return { c, v, top: H - 6 };
+}
+let farTree = null;
+function drawGardenSky(t) {
+  const cam = G.cam;
+  ctx.save();
+  // dawn wash: violet up high, rose and gold toward the horizon
+  const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, 'rgba(20,10,40,0.45)'); g.addColorStop(0.6, 'rgba(160,70,130,0.12)'); g.addColorStop(1, 'rgba(255,170,140,0.14)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 70; i++) {          // stars
+    const x = ((hash(i * 3.1) * VW * 2 - cam.x * 0.02) % VW + VW) % VW, y = hash(i * 7.7) * VH * 0.55, tw = 0.5 + 0.5 * Math.sin(t * (1 + hash(i) * 2) + i);
+    ctx.globalAlpha = 0.25 + tw * 0.6; ctx.fillStyle = i % 5 ? '#fff0f6' : '#9ff4dc'; ctx.fillRect(Math.round(x), Math.round(y), 1, 1);
+    if (tw > 0.95 && i % 4 === 0) { ctx.fillRect(Math.round(x) - 1, Math.round(y), 3, 1); ctx.fillRect(Math.round(x), Math.round(y) - 1, 1, 3); }
+  }
+  for (let b = 0; b < 3; b++) {         // aurora ribbons
+    const col = ['#ff9fcf', '#9ff4dc', '#c9a8ff'][b], base = 40 + b * 22;
+    for (let x = 0; x < VW; x += 2) {
+      const wx = x + cam.x * 0.04, y = base + Math.sin(wx * 0.012 + t * 0.3 + b * 2) * 16 + Math.sin(wx * 0.031 - t * 0.5) * 6;
+      const a = (0.5 + 0.5 * Math.sin(wx * 0.02 + t * 0.7 + b)) * 0.07;
+      ctx.globalAlpha = a; ctx.fillStyle = col; ctx.fillRect(x, Math.round(y), 2, 26 + b * 6);
+      ctx.globalAlpha = a * 1.6; ctx.fillRect(x, Math.round(y), 2, 2);
+    }
+  }
+  ctx.restore();
+  // a far grove of sister trees, faded into the haze
+  if (!farTree) { const T = blossomCanvas || (blossomCanvas = buildBlossom()); farTree = document.createElement('canvas'); farTree.width = T.c.width; farTree.height = T.c.height; const f = farTree.getContext('2d'); f.drawImage(T.c, 0, 0); f.globalCompositeOperation = 'source-atop'; f.fillStyle = 'rgba(120,70,130,0.78)'; f.fillRect(0, 0, farTree.width, farTree.height); }
+  ctx.save(); ctx.globalAlpha = 0.55;
+  for (let k = 0; k < 4; k++) {
+    const span = VW + 260, x = ((k * 230 - cam.x * 0.12) % span + span) % span - 130, sc = 0.55 + (k % 2) * 0.2;
+    ctx.drawImage(farTree, Math.round(x), Math.round(VH * 0.62 - farTree.height * sc + (G.w.start.y - cam.y) * 0.1), farTree.width * sc, farTree.height * sc);
+  }
+  ctx.restore();
+}
+function drawTreeRays(t, x, y) {      // shafts of light fanning down through the crown
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 7; k++) {
+    const a = -0.9 + k * 0.3 + Math.sin(t * 0.3 + k) * 0.04, len = 260, wd = 10 + (k % 3) * 8;
+    ctx.globalAlpha = 0.035 + 0.025 * Math.sin(t * 0.7 + k * 1.3);
+    ctx.fillStyle = k % 2 ? '#ffe6c4' : '#ffc4df';
+    ctx.beginPath(); ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.sin(a) * len - wd, y + Math.cos(a) * len); ctx.lineTo(x + Math.sin(a) * len + wd, y + Math.cos(a) * len); ctx.fill();
+  }
+  ctx.restore();
 }
 function drawBlossom(t) {
   if (!blossomCanvas) blossomCanvas = buildBlossom();
-  const x = G.w.goal.x, y = G.w.goal.y + 26, k = G.garden.nameT >= 0 ? Math.min(1, G.garden.nameT / 2) : 0;
+  const T = blossomCanvas, x = G.w.goal.x, y = G.w.goal.y + 26, k = G.garden.nameT >= 0 ? Math.min(1, G.garden.nameT / 2) : 0;
+  const ox = Math.round(x - T.c.width), oy = Math.round(y - T.top * 2);
   ctx.save(); ctx.globalCompositeOperation = 'lighter';
-  for (const [r, a] of [[170, 0.04], [120, 0.05], [80, 0.06]]) { ctx.globalAlpha = a * (1 + k + Math.sin(t * 0.8) * 0.2); ctx.fillStyle = '#ff8fc4'; VX.disc(ctx, x, y - 190, r * 1.3, 1); }
+  for (const [r, a, col] of [[230, 0.03, '#ff6fae'], [160, 0.04, '#ffb0d4'], [90, 0.05, '#fff0d8']]) { ctx.globalAlpha = a * (1 + k * 1.5 + Math.sin(t * 0.8) * 0.25); ctx.fillStyle = col; VX.disc(ctx, x, y - 230, r, 1); }
   ctx.restore();
-  ctx.drawImage(blossomCanvas, Math.round(x - 190), y - 288);
-  for (let i = 0; i < 26; i++) {      // glints winking through the canopy
-    const a = hash(i * 9.3) * Math.PI * 2, r = 20 + hash(i * 4.1) * 140, gx = x + Math.cos(a) * r, gy = y - 200 + Math.sin(a) * r * 0.45, tw = Math.sin(t * 2 + i * 1.7);
-    if (tw > 0.6) { ctx.fillStyle = '#fffaf0'; ctx.globalAlpha = (tw - 0.6) * 2.5; ctx.fillRect(Math.round(gx), Math.round(gy), 1, 1); if (tw > 0.9) { ctx.fillRect(Math.round(gx) - 1, Math.round(gy), 3, 1); ctx.fillRect(Math.round(gx), Math.round(gy) - 1, 1, 3); } }
+  drawTreeRays(t, x, y - 300);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(T.c, ox, oy, T.c.width * 2, T.c.height * 2);
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let p = 0; p < 2; p++) { ctx.globalAlpha = (0.55 + 0.45 * Math.sin(t * 1.6 - p)) * (p ? 0.5 : 1); ctx.drawImage(T.v, ox - p, oy - p, T.v.width * 2 + p * 2, T.v.height * 2 + p * 2); }
+  for (let i = 0; i < 40; i++) {      // glints winking in the crown
+    const a = hash(i * 9.3) * Math.PI * 2, r = 20 + hash(i * 4.1) * 160, gx = x + Math.cos(a) * r * 1.1, gy = y - 220 + Math.sin(a) * r * 0.5, tw = Math.sin(t * 2 + i * 1.7);
+    if (tw > 0.55) { ctx.fillStyle = i % 3 ? '#fff6e4' : '#9ff4dc'; ctx.globalAlpha = (tw - 0.55) * 2.2; ctx.fillRect(Math.round(gx), Math.round(gy), 1, 1); if (tw > 0.9) { ctx.fillRect(Math.round(gx) - 2, Math.round(gy), 5, 1); ctx.fillRect(Math.round(gx), Math.round(gy) - 2, 1, 5); } }
   }
+  ctx.restore();
+}
+function drawPetalCarpet(t) {      // fallen blossoms pooled around the roots
+  const x0 = G.w.goal.x, gy = G.w.goal.y + 26;
+  for (let i = 0; i < 160; i++) {
+    const dx = (hash(i * 2.7) - 0.5) * 2, x = Math.round(x0 + dx * Math.abs(dx) * 220), y = gy - 1 - Math.floor(hash(i * 5.3) * 2);
+    ctx.fillStyle = ['#ffc4df', '#f59bc8', '#fff6e4', '#e073ad'][i % 4]; ctx.fillRect(x, y, hash(i) > 0.5 ? 2 : 1, 1);
+  }
+}
+function drawSpiritMotes(t) {      // slow lights rising off the garden
+  const g = G.garden; ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const m of g.motes) {
+    const a = Math.min(1, m.t / 1.5, (m.life - m.t) / 1.5) * (0.6 + 0.4 * Math.sin(t * 4 + m.ph));
+    ctx.globalAlpha = a * 0.25; ctx.fillStyle = m.c; VX.disc(ctx, m.x, m.y, 4, 1);
+    ctx.globalAlpha = a; ctx.fillRect(Math.round(m.x), Math.round(m.y), 1, 1);
+  }
+  ctx.restore();
+}
+let bloomBuf = null;
+function gardenPost(t) {      // soft bloom over the whole frame, big petals sweeping past the lens, warm vignette
+  const src = ctx.canvas;
+  if (!bloomBuf) { bloomBuf = document.createElement('canvas'); bloomBuf.width = VW >> 2; bloomBuf.height = VH >> 2; }
+  const b = bloomBuf.getContext('2d'); b.imageSmoothingEnabled = true; b.clearRect(0, 0, bloomBuf.width, bloomBuf.height);
+  b.filter = 'brightness(0.85) contrast(2.4)'; b.drawImage(src, 0, 0, src.width, src.height, 0, 0, bloomBuf.width, bloomBuf.height); b.filter = 'none';
+  ctx.save(); ctx.imageSmoothingEnabled = true; ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.22;
+  ctx.drawImage(bloomBuf, 0, 0, VW, VH); ctx.globalAlpha = 0.12; ctx.drawImage(bloomBuf, -6, -6, VW + 12, VH + 12);
+  ctx.restore(); ctx.imageSmoothingEnabled = false;
+  const g = G.garden;
+  for (const q of g.lens) { ctx.globalAlpha = 0.7; ctx.fillStyle = q.c; const fl = Math.sin(q.ph) > 0; ctx.fillRect(Math.round(q.x), Math.round(q.y), fl ? 4 : 3, fl ? 2 : 3); ctx.fillStyle = '#fff6e4'; ctx.fillRect(Math.round(q.x), Math.round(q.y), 1, 1); }
   ctx.globalAlpha = 1;
+  const v = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.35, VW / 2, VH / 2, VH * 0.9); v.addColorStop(0, 'rgba(40,10,40,0)'); v.addColorStop(1, 'rgba(40,10,40,0.45)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, VW, VH);
 }
 const HEART = ['.##.##.', '#######', '.#####.', '..###..', '...#...'];
 function drawGardenFront(t) {
@@ -1191,7 +1293,7 @@ function drawGardenFront(t) {
   }
   if (g.nameT > 2.2) {      // its name, at last
     const n = 'Death', a = Math.min(1, (g.nameT - 2.2) / 1.2), shown = Math.min(n.length, Math.floor((g.nameT - 2.2) * 4) + 1);
-    ctx.globalAlpha = a; text(n.slice(0, shown), G.w.goal.x, G.w.goal.y - 76, 2, '#ffe6f2', 'center', '#4a1f3c'); ctx.globalAlpha = 1;
+    ctx.globalAlpha = a; const ny = G.w.goal.y - 128; for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]]) text(n.slice(0, shown), G.w.goal.x + dx, ny + dy, 2, '#2a0f24', 'center'); text(n.slice(0, shown), G.w.goal.x, ny, 2, '#ffe6f2', 'center'); ctx.globalAlpha = 1;
   }
 }
 function gardenName() {
@@ -1925,7 +2027,7 @@ function drawWorldBackground(t) {
   };
   const alt = -(cam.y + VH / 2 - G.w.start.y) / TS;
   // backdrop parallax
-  const hz = G.w.garden ? [214, 230, 240] : mood().haze, haze = a => { ctx.fillStyle = `rgba(${hz[0]},${hz[1]},${hz[2]},${a})`; ctx.fillRect(0, 0, VW, VH); };
+  const hz = G.w.garden ? [62, 40, 96] : mood().haze, haze = a => { ctx.fillStyle = `rgba(${hz[0]},${hz[1]},${hz[2]},${a})`; ctx.fillRect(0, 0, VW, VH); };
   const d2 = Math.round(Math.max(36, Math.min(VH, 36 + alt * 3))), d1 = Math.round(Math.max(64, Math.min(VH, 64 + alt * 6)));   // its painted ground always stays under the screen
   wrapDraw(b3, 0.05, t * 2 + bgi * 300);
   if (d2 < VH) { wrapDraw(d2 > 0 ? fadedLayer('bg2') : IMG.bg2, 0.15, bgi * 400, d2); if (d2 < 0) { ctx.fillStyle = '#b7cae0'; ctx.fillRect(0, VH + d2, VW, -d2); } }
@@ -1980,7 +2082,7 @@ function worldLights() {
   for (const c of w.caps) L.push({ x: c.ox + 35, y: c.oy + 22, r: 62, col: '#6f8be0', p: 0.75 });
   for (const s of G.sprouts || []) if (s.t > 0.4) L.push({ x: s.x, y: s.y - 14, r: 30 + 18 * (G.bloomK || 0), col: '#9ff4ff', p: 0.7 });
   if (G.level < LEVELS) L.push({ x: w.goal.x, y: w.goal.y, r: 96, col: w.L.info.artifact[2], p: 1 });
-  if (w.garden) for (let k = 0; k < 4; k++) L.push({ x: w.goal.x + (k - 1.5) * 70, y: w.goal.y - 110 - (k % 2) * 30, r: 110, col: '#ff9fcf', p: 0.8 });
+  if (w.garden) for (let k = 0; k < 4; k++) L.push({ x: w.goal.x + (k - 1.5) * 70, y: w.goal.y - 110 - (k % 2) * 30, r: 90, col: '#ff9fcf', p: 0.6 });
   for (const o of G.oracle ? [G.oracle] : []) if (o.x != null) L.push({ x: o.x, y: o.y, r: 50, col: '#c9a2ff', p: 0.8 });
   return L;
 }
@@ -2020,7 +2122,7 @@ function drawSporeDrift(t, dt) {
 function renderPlay(t, dt) {
   const w = G.w, L = w.L, cam = G.cam, cx = Math.round(cam.x), cy = Math.round(cam.y);
   drawWorldBackground(t);
-  if (G.w.garden) drawGodRays(t, cam.x);
+  if (G.w.garden) { drawGardenSky(t); drawGodRays(t, cam.x); }
   { const dpt = Math.max(G.level >= LEVELS ? 0 : LEVEL_DEPTH[Math.min(LEVEL_DEPTH.length - 1, G.level)], (G.dark || 0) * 0.85) * (1 - 0.35 * (G.bloomK || 0)); if (dpt > 0) { const nc = G.w.garden ? [10, 9, 24] : mood().night; ctx.fillStyle = `rgba(${nc[0]},${nc[1]},${nc[2]},${dpt})`; ctx.fillRect(0, 0, VW, VH); } }
   const [sx, sy] = VX.cameraOffset(t, dt);
   ctx.save(); ctx.translate(-cx + sx, -cy + sy);
@@ -2030,8 +2132,8 @@ function renderPlay(t, dt) {
   for (let gy = Math.floor(cam.y / CHUNK_PX); gy <= Math.floor((cam.y + VH + 100) / CHUNK_PX); gy++)
     for (let gx = Math.floor((cam.x - 140) / CHUNK_PX); gx <= Math.floor((cam.x + VW + 140) / CHUNK_PX); gx++)
       for (const [name, px, py] of L.chunk(gx, gy).deco) spr(ctx, name, px, py);
-  if (w.garden) drawBlossom(t);
   for (const [ccx, ccy, c] of vis) ctx.drawImage(c.terr, ccx * CHUNK_PX, ccy * CHUNK_PX - TS);
+  if (w.garden) { drawBlossom(t); drawPetalCarpet(t); drawSpiritMotes(t); }
   drawFlora(t, false);
   for (const c of w.caps) if (Math.abs(c.ox - cam.x - VW / 2) < VW) drawCap(c);
   drawSprouts(t);
@@ -2066,6 +2168,7 @@ function renderPlay(t, dt) {
   VX.draw(ctx, dt);
   ctx.restore();
   drawWorldLight(cx - sx, cy - sy);
+  if (w.garden) gardenPost(t);
   { const tgt = G.w.garden ? 1 : Math.min(1, (G.sprouts || []).length / 5);      // every glowcap you've grown here brings the colour back
     G.bloomK = (G.bloomK || 0) + (tgt - (G.bloomK || 0)) * Math.min(1, dt * 1.5); AU.bloom(G.bloomK);
     if (G.bloomK > 0.02 && !G.w.garden) { ctx.globalCompositeOperation = 'soft-light'; ctx.globalAlpha = 0.4 * G.bloomK; ctx.fillStyle = mood().spore[1]; ctx.fillRect(0, 0, VW, VH); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; } }
