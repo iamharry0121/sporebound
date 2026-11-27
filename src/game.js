@@ -849,7 +849,7 @@ function updateSprouts(dt) {
   const b = G.ball;
   for (const s of G.sprouts || []) {
     s.t += dt; if (s.sq > 0) s.sq = Math.max(0, s.sq - dt * 4);
-    const top = s.y - sproutH(s) - 5;
+    const top = s.y - sproutH(s) + 4;
     if (G.phase === 'play' && s.t > 1.2 && b.vy > 40 && Math.abs(b.x - s.x) < 10 && b.y + PHYS.R > top - 2 && b.y + PHYS.R < top + 8) {
       b.y = top - PHYS.R; b.vy = -Math.max(380, b.vy * 0.75); s.sq = 1; AU.cap(); resetAirCharges();
       if (!(G.od > 0) && G.time - (G.odAt || -99) > 6) { G.od = 3; G.odSlow = 0.7; G.odTrail = []; G.odAt = G.time; AU.reveal(); if (!G.run.rebounded) { G.run.rebounded = true; popup('Rebound', b.x, b.y - 24, '#7dff3a'); } }
@@ -858,15 +858,15 @@ function updateSprouts(dt) {
   }
 }
 function dot(x, y, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); }
-function sproutH(s) { const k = Math.min(1, Math.max(0, (s.t - 0.4) / 0.8)); return Math.round(12 * (1 + 2.7 * Math.pow(k - 1, 3) + 1.7 * Math.pow(k - 1, 2))); }
-function drawSprouts(t, list) {
+function sproutH(s) { const k = Math.min(1, Math.max(0, (s.t - 0.4) / 0.8)); return Math.round(SPR.glow[3] * 0.8 * (1 + 2.7 * Math.pow(k - 1, 3) + 1.7 * Math.pow(k - 1, 2))); }
+function drawSprouts(t, list) {      // the glowcap that grows where you fell
+  const g = SPR.glow;
   for (const s of list || G.sprouts || []) {
     if (s.t < 0.4) { if (Math.random() < 0.5) dot(s.x + (Math.random() - 0.5) * 6, s.y - Math.random() * 6, '#9ff4ff'); continue; }
-    const h = sproutH(s), sq = Math.sin(s.sq * Math.PI) * s.sq, w = Math.round(7 * (1 + sq * 0.3)), top = s.y - h;
-    ctx.fillStyle = '#c8d8c8'; ctx.fillRect(s.x - 1, top, 2, h);
-    for (let i = -w; i <= w; i++) { const hh = Math.round(Math.sqrt(1 - (i / (w + 0.5)) ** 2) * (5 - sq * 2)); ctx.fillStyle = Math.abs(i) > w - 2 ? '#3fa8b8' : '#6fe0e8'; ctx.fillRect(s.x + i, top - hh, 1, hh); }
-    dot(s.x - 3, top - 3, '#e0fff8'); dot(s.x + 2, top - 2, '#e0fff8');
-    if (Math.sin(t * 3 + s.x) > 0.96) dot(s.x + (Math.random() - 0.5) * 10, top - 6 - Math.random() * 6, '#e0fff8');
+    const k = sproutH(s) / (g[3] * 0.8), sq = Math.sin(s.sq * Math.PI) * s.sq;
+    const w = Math.round(g[2] * 0.8 * Math.min(1, 0.4 + k * 0.6) * (1 + sq * 0.15)), h = Math.max(1, Math.round(g[3] * 0.8 * k * (1 - sq * 0.2)));
+    ctx.drawImage(IMG.tp, g[0], g[1], g[2], g[3], Math.round(s.x - w / 2), Math.round(s.y - h), w, h);
+    if (Math.sin(t * 3 + s.x) > 0.96) dot(s.x + (Math.random() - 0.5) * 14, s.y - h - Math.random() * 6, '#e0fff8');
   }
 }
 function popup(s, x, y, color) { G.popups.push({ s, x, y, t: 0, color: color || MEM.text }); }
