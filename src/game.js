@@ -586,7 +586,7 @@ const RARITY = [
 ];
 const G = { ts: 1, fxMax: (() => { try { return localStorage.getItem("sporebound_fx") === "max"; } catch (e) { return false; } })(),
   state: 'load', mode: 'story', w: null, ball: null, phase: 'play', phaseT: 0, roomT: 0, particles: [], popups: [], fx: [], orbs: [],
-  aim: null, kbAim: { a: 40, p: 0.6, on: false }, level: 0, run: null, draft: null, lastSafe: null, safeT: 0,
+  aim: null, kbAim: { a: 40, p: 0.6, on: false }, level: 0, run: null, draft: null, lastSafe: null, safeHist: [], stuck: null, safeT: 0,
   time: 0, flies: 0, fade: 1, endT: 0, best: null, secondWindUsed: false, kbDraft: false, sinkX: 0, sinkY: 0,
   roomSpores: 0, touch: false, hopQueued: false, trail: [], oracle: null, oracleNext: 2.6, facing: 1, askCd: 0,
   cam: { x: 0, y: 0 }, artifacts: [], menu: 0, save: null, airT: 0,
@@ -676,6 +676,7 @@ screen.addEventListener('pointerdown', e => {
   if (e.pointerType === 'touch') G.touch = true;
   try { screen.setPointerCapture(e.pointerId); } catch (_) { }
   const p = toGame(e);
+  if (G.stuckHint && G.phase === 'play' && Math.abs(p.x - VW / 2) < 90 && Math.abs(p.y - (VH - 35)) < 13) { unstick(); return; }
   if (G.state === 'title' && introK() < INTRO) { G.introSkip = true; return; }
   if (G.state === 'title') { if (ready()) { const i = menuHit(p); if (i >= 0) { G.menu = i; menuSelect(i); } } return; }
   if (G.state === 'end') { if (G.endT > 2.5) { AU.ui(); G.state = 'title'; } return; }
@@ -699,6 +700,7 @@ screen.addEventListener('pointerdown', e => {
     }
   }
   if (G.phase === 'play') G.press = { id: e.pointerId, x: p.x, y: p.y, t: performance.now() };
+  if (G.phase === 'play' && !canSling()) noteTry();
   if (G.phase === 'play' && canSling()) { aimPointer = e.pointerId; G.aim = { sx: p.x, sy: p.y, x: p.x, y: p.y, lastBucket: -1 }; G.kbAim.on = false; }
 });
 screen.addEventListener('pointermove', e => {
@@ -775,7 +777,7 @@ window.addEventListener('keydown', e => {
   if ((e.code === 'KeyF' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && canSling()) { G.kbAim.on = true; G.kbAim.a = G.ball.vx < -5 || (G.w.mirror && G.ball.vx <= 5) ? 135 : 45; AU.tick(); return; }
   if (HOP_KEYS.includes(e.code)) G.hopQueued = true;
   if (e.code === 'KeyE' || e.code === 'KeyJ') CB.autoBlast();
-  if (e.code === 'KeyR') { G.ball.vx = G.ball.vy = 0; die(true); }
+  if (e.code === 'KeyR') { if (G.stuckHint || (G.stuck && G.stuck.t > 4 && G.stuck.tries >= 3)) unstick(); else { G.ball.vx = G.ball.vy = 0; die(true); } }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (G.state === 'play' && (G.phase === 'play' || G.phase === 'dead')) G.paused = true; });
@@ -798,7 +800,7 @@ function currentAim() {
   return null;
 }
 function fling(vx, vy, p) {
-  const b = G.ball;
+  const b = G.ball; noteTry();
   const air = !grounded();
   b.vx = vx; b.vy = vy; b.t = 0; b.restT = 0; b.padCombo = 0; b.coyote = 0;
   if (p >= 0.2) tutCount();
@@ -809,7 +811,7 @@ function fling(vx, vy, p) {
   fx('dust', b.x, b.y + 2, { sc: 0.8 });
 }
 function hop() {
-  const b = G.ball;
+  const b = G.ball; noteTry();
   if (b.coyote <= 0 && !(b.jumps > 0)) { G.hopBuf = 0.12; return; }
   G.hopBuf = 0;
   if (b.coyote > 0) {
@@ -939,12 +941,14 @@ function fixedUpdate(dt) {
     }
     if (G.phaseT % 0.05 < dt && !b.grounded) { G.trail.push({ x: b.x, y: b.y }); if (G.trail.length > 14) G.trail.shift(); }
     if (b.grounded) G.trail.length = Math.max(0, G.trail.length - 1);
+    if (!b.grounded && Math.hypot(b.vx, b.vy) < 14) { G.wedgeT = (G.wedgeT || 0) + dt; if (G.wedgeT > 0.3) { b.coyote = Math.max(b.coyote, PHYS.COYOTE); resetAirCharges(); } } else G.wedgeT = 0;
     CB.update(dt);
     if (G.phase !== 'play') return;      // a rival mightve just taken ur last dna
+    unstuckCheck(dt);
     // remember the last safe spot so we can respawn there
     const tx0 = Math.floor((b.x - 9) / TS), tx1 = Math.floor((b.x + 9) / TS), ty = Math.floor((b.y + PHYS.R + 2) / TS);
     const footing = ['#', '-'].includes(tileAt(w, tx0, ty)) && ['#', '-'].includes(tileAt(w, tx1, ty));
-    if (b.grounded && !b.groundMoving && footing && Math.abs(b.vx) < 160) { G.safeT += dt; if (G.safeT > 0.15) G.lastSafe = { x: b.x, y: b.y }; } else G.safeT = 0;
+    if (b.grounded && !b.groundMoving && footing && Math.abs(b.vx) < 160) { G.safeT += dt; if (G.safeT > 0.15) { G.lastSafe = { x: b.x, y: b.y }; const h = G.safeHist, l = h[h.length - 1]; if (!l || Math.hypot(l.x - b.x, l.y - b.y) > 64) { h.push(G.lastSafe); if (h.length > 40) h.shift(); } } } else G.safeT = 0;
     // fell way down into the dark under ur last spot
     if (b.grounded) G.airT = 0; else G.airT += dt;
     if (!b.grounded && b.y > G.lastSafe.y + 560 && G.airT > 1.2) lostInDark();
@@ -980,6 +984,22 @@ function sink() {
   G.phase = 'dead'; G.phaseT = 0; G.sinkX = b.x; G.sinkY = b.y;
 }
 function die(manual) { if (manual) { G.phase = 'dead'; G.phaseT = 0.45; AU.pop(); } }
+function noteTry() { if (G.stuck) G.stuck.tries++; }
+function unstuckCheck(dt) {
+  const b = G.ball, s = G.stuck || (G.stuck = { x: b.x, y: b.y, t: 0, tries: 0 });
+  const d = Math.hypot(b.x - s.x, b.y - s.y);
+  if (d > 160) { s.x = b.x; s.y = b.y; s.t = 0; s.tries = 0; s.maxD = 0; G.stuckHint = false; return; }
+  s.t += dt; s.maxD = Math.max(s.maxD || 0, d);
+  if (s.t > 5 && s.tries >= 3 && s.maxD < 48) unstick();          // pinned in place: just fix it
+  else if (s.t > 12 && s.tries >= 5) G.stuckHint = true;          // boxed in somewhere: offer a way out
+}
+function unstick() {
+  const b = G.ball, far = p => Math.hypot(p.x - b.x, p.y - b.y) > 96;
+  const to = [...G.safeHist].reverse().find(far) || { x: G.w.start.x, y: G.w.start.y };
+  G.lastSafe = to; G.stuck = null; G.stuckHint = false;
+  fx('warp', b.x, b.y, { sc: 0.7 }); respawn();
+  popup('Unstuck!', G.ball.x, G.ball.y - 20, '#9ff4dc');
+}
 function respawn() {
   G.od = 0; G.odSlow = 0;
   G.cine = 0; G.cineText = null;
@@ -1018,7 +1038,7 @@ function startGarden() {
   G.w = window.GEN.makeGardenWorld(R.mods);
   const w = G.w, ga = w.L.groundAt;
   G.ball = makeBall(w.start.x, w.start.y);
-  G.lastSafe = { x: w.start.x, y: w.start.y }; G.safeT = 0; G.airT = 0;
+  G.lastSafe = { x: w.start.x, y: w.start.y }; G.safeT = 0; G.airT = 0; G.safeHist = [G.lastSafe]; G.stuck = null;
   G.phase = 'play'; G.phaseT = 0; G.roomT = 0; G.particles = []; G.popups = []; G.fx = []; G.orbs = []; G.trail = [];
   G.aim = null; G.kbAim.on = false; G.state = 'play'; G.paused = false; G.roomSpores = 0;
   G.oracle = null; G.oracleNext = 1e9; G.facing = 1; G.askCd = 0;
@@ -2205,6 +2225,7 @@ function renderPlay(t, dt) {
   drawDNABar(t);
   drawOracle(t);
   drawTouchButtons();
+  if (G.stuckHint && G.phase === 'play') { membrane(VW / 2 - 90, VH - 48, 180, 26, 8); text(G.touch ? 'Stuck? Tap here to get out' : 'Stuck? Click here or press R', VW / 2, VH - 39, 1, '#9ff4dc', 'center'); }
   if (!G.oracle && G.phase === 'play' && G.askCd <= 0 && !G.touch && canListen()) text('Q: listen', 34, VH - 14, 1, 'rgba(200,190,255,0.55)', 'left', null);
   if (G.roomT < 8 && G.phase === 'play' && G.level === 0 && !G.touch) {
     ctx.globalAlpha = Math.min(1, (8 - G.roomT) / 1.5);
