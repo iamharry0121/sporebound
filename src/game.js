@@ -36,10 +36,18 @@ const lo = document.createElement('canvas'); lo.width = VW; lo.height = VH;
 let ctx = lo.getContext('2d');
 const VX = window.makeVFX({ G: null, VW, VH, get ctx() { return ctx; } });
 ctx.imageSmoothingEnabled = false;
+// match the backing store to the real on-screen size, then blit sharp
+const mid = document.createElement('canvas'), midx = mid.getContext('2d');
 function resize() {
   const r = screen.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-  const k = Math.max(1, Math.round(r.width * dpr / VW));
-  if (screen.width !== VW * k) { screen.width = VW * k; screen.height = VH * k; }
+  const W = Math.max(VW, Math.round(r.width * dpr)), H = Math.round(W * VH / VW), k = Math.ceil(W / VW);
+  if (screen.width !== W || screen.height !== H) { screen.width = W; screen.height = H; }
+  if (mid.width !== VW * k) { mid.width = VW * k; mid.height = VH * k; }
+}
+function present() {
+  if (screen.width === mid.width) { sctx.imageSmoothingEnabled = false; sctx.drawImage(lo, 0, 0, screen.width, screen.height); return; }
+  midx.imageSmoothingEnabled = false; midx.drawImage(lo, 0, 0, mid.width, mid.height);
+  sctx.imageSmoothingEnabled = true; sctx.imageSmoothingQuality = 'high'; sctx.drawImage(mid, 0, 0, screen.width, screen.height);
 }
 
 
@@ -2443,8 +2451,7 @@ function frame(now) {
     const m = 'Turn your phone sideways for a bigger view', w = textWidth(m) + 16;
     ctx.globalAlpha = 0.85 + 0.15 * Math.sin(T * 3); pill(VW / 2 - w / 2, VH / 2 - 7, w); text(m, VW / 2, VH / 2 - 4, 1, MEM.text, 'center'); ctx.globalAlpha = 1;
   }
-  sctx.imageSmoothingEnabled = false;
-  sctx.drawImage(lo, 0, 0, screen.width, screen.height);
+  present();
   requestAnimationFrame(frame);
 }
 window.SPOREBOUND = { G, CB, startLevel, newGame, continueGame, AU, MUT, MUTATIONS, openDraft, pickCard, fling, hop, summonOracle };
