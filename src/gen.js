@@ -376,7 +376,7 @@ function makeLevel(n, seedOverride) {
       else if (guard === 'bloater' || guard === 'mite') c.enemies.push({ type: guard, x: x * TS + 8, y: y * TS, id: k + ':' + guard[0] + i + ':' + j });
       else if (far && structural(x, y - 3) === '.') {
         const flat = [-1, 1].every(d => structural(x + d, y) === '#' && structural(x + d, y - 1) === '.');
-        if (flat && he < 0.03 + prog * 0.03) c.enemies.push({ type: 'shroom', x: x * TS + 8, y: (y - 1) * TS + 8, id: k + ':a' + i + ':' + j });
+        if (flat && he < (n === 0 ? 0.016 : n === 1 ? 0.024 : 0.03 + prog * 0.03)) c.enemies.push({ type: 'shroom', x: x * TS + 8, y: (y - 1) * TS + 8, id: k + ':a' + i + ':' + j });
         else if (flat && n >= 1 && he > 0.982 - prog * 0.02) c.enemies.push({ type: 'drift', x: x * TS + 8, y: y * TS, id: k + ':f' + i + ':' + j });
         else if (flat && n >= 2 && he > 0.5 && he < 0.509 + prog * 0.012 && [-2, 2].every(d => structural(x + d, y) === '#')) c.enemies.push({ type: 'worm', x: x * TS + 8, y: y * TS, id: k + ':w' + i + ':' + j });
         else if (flat && n >= 2 && he > 0.3 && he < 0.306 + prog * 0.012 && [-2, 2].every(d => structural(x + d, y) === '#')) c.enemies.push({ type: 'bloater', x: x * TS + 8, y: y * TS, id: k + ':b' + i + ':' + j });

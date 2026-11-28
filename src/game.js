@@ -832,6 +832,30 @@ function burst(x, y, n, o = {}) {
       g: o.g == null ? 200 : o.g, color: o.color[(Math.random() * o.color.length) | 0], size: o.size || 1 });
   }
 }
+const TIPS = (() => { try { return JSON.parse(localStorage.getItem('sporebound_tips')) || {}; } catch (e) { return {}; } })();
+const tipQ = []; let tipNow = null;
+function tip(id, desk, touch) {
+  if (TIPS[id] || tipQ.some(q => q.id === id) || (tipNow && tipNow.id === id)) return;
+  tipQ.push({ id, s: G.touch && touch ? touch : desk });
+}
+function drawTips() {
+  if (!tipNow && tipQ.length && G.phase === 'play' && G.roomT > 2.8) { tipNow = tipQ.shift(); tipNow.t0 = performance.now(); TIPS[tipNow.id] = 1; try { localStorage.setItem('sporebound_tips', JSON.stringify(TIPS)); } catch (e) { } }
+  if (!tipNow) return;
+  const T = 5, k = (performance.now() - tipNow.t0) / 1000;
+  if (k > T) { tipNow = null; return; }
+  ctx.globalAlpha = Math.min(1, k * 4, (T - k) * 2);
+  const w = textWidth(tipNow.s) + 20; pill(VW / 2 - w / 2, 46, w, 16); text(tipNow.s, VW / 2, 50, 1, '#eaff8a', 'center');
+  ctx.globalAlpha = 1;
+}
+function tipCheck() {      // teach each thing the first time it matters
+  const b = G.ball, R = G.run; if (!b || !R || G.w.garden || CB.elderActive()) return;
+  if (G.level === 0 && R.elderDone && G.roomT > 1) tip('death', 'Every death grows a mutation. You come back stronger.');
+  if (G.level === 0 && R.elderDone && G.roomT > 1.5) tip('arrow', 'Follow the arrow to the glowing artifact');
+  if ((G.sprouts || []).length) tip('sprout', 'You fell, so a glowcap grew. Bounce on it!');
+  if (!b.grounded && b.slings > 0 && G.airT > 0.3 && TUT.flings >= 1) tip('air', 'Drag again in mid-air for a second fling', 'Swipe again in mid-air for a second fling');
+  if (R.dna < R.dnaMax * 0.8) tip('dna', 'DNA is your life. Water and rivals drain it, fireflies refill it.');
+  if (CB.S.enemies.some(e => !e.dead && Math.hypot(e.x - b.x, e.y - b.y) < 150)) tip('toxin', 'Click to blast toxin at rivals', 'Tap to blast toxin at rivals');
+}
 function plantSprout(x, y, count) {
   if (!G.w || G.w.garden) return;
   const tx = Math.floor(x / TS);
@@ -944,7 +968,7 @@ function fixedUpdate(dt) {
     if (!b.grounded && Math.hypot(b.vx, b.vy) < 14) { G.wedgeT = (G.wedgeT || 0) + dt; if (G.wedgeT > 0.3) { b.coyote = Math.max(b.coyote, PHYS.COYOTE); resetAirCharges(); } } else G.wedgeT = 0;
     CB.update(dt);
     if (G.phase !== 'play') return;      // a rival mightve just taken ur last dna
-    unstuckCheck(dt);
+    unstuckCheck(dt); tipCheck();
     // remember the last safe spot so we can respawn there
     const tx0 = Math.floor((b.x - 9) / TS), tx1 = Math.floor((b.x + 9) / TS), ty = Math.floor((b.y + PHYS.R + 2) / TS);
     const footing = ['#', '-'].includes(tileAt(w, tx0, ty)) && ['#', '-'].includes(tileAt(w, tx1, ty));
@@ -1831,9 +1855,11 @@ function drawGuide(t, dt) {
     const d = Math.hypot(G.w.goal.x - G.ball.x, G.w.goal.y - G.ball.y);
     const gk = Math.round(G.w.goal.x) + ',' + Math.round(G.w.goal.y); if (G.bestK !== gk) { G.bestK = gk; G.bestD = 1e9; }
     if (!(G.bestD < 1e9) || d < G.bestD - 40) { G.bestD = d; G.lostT = 0; } else G.lostT = (G.lostT || 0) + dt;
-    if ((G.lostT > 15 || d > G.bestD + 320) && canListen()) on = true;
+    if ((G.lostT > 12 || d > G.bestD + 320) && !CB.elderActive()) on = true;
   }
-  guideA = Math.max(0, Math.min(1, guideA + (on ? dt * 3 : -dt * 1.5)));
+  const base = G.phase === 'play' && G.ball && G.w && G.w.goal && !G.w.garden && !CB.elderActive() ? 0.38 : 0;
+  const want = on ? 1 : base;
+  guideA = Math.max(0, Math.min(1, guideA + Math.sign(want - guideA) * Math.min(Math.abs(want - guideA), dt * (on ? 3 : 1.5))));
   if (guideA <= 0 || !G.ball || !G.w || !G.w.goal) return;
   const b = G.ball, g = G.w.goal, dx = g.x - b.x, dy = g.y - b.y, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L;
   if (L < 40) return;
@@ -2225,6 +2251,7 @@ function renderPlay(t, dt) {
   drawDNABar(t);
   drawOracle(t);
   drawTouchButtons();
+  drawTips();
   if (G.stuckHint && G.phase === 'play') { membrane(VW / 2 - 90, VH - 48, 180, 26, 8); text(G.touch ? 'Stuck? Tap here to get out' : 'Stuck? Click here or press R', VW / 2, VH - 39, 1, '#9ff4dc', 'center'); }
   if (!G.oracle && G.phase === 'play' && G.askCd <= 0 && !G.touch && canListen()) text('Q: listen', 34, VH - 14, 1, 'rgba(200,190,255,0.55)', 'left', null);
   if (G.roomT < 8 && G.phase === 'play' && G.level === 0 && !G.touch) {
